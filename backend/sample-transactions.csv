@@ -1,0 +1,3 @@
+transaction_reference,amount,status,payment_date,customer_identifier,provider,settlement_reference
+TXN-CSV-001,7500,success,2026-05-24T22:10:00,customer1@example.com,PAYSTACK,SETTLE-CSV-001
+TXN-CSV-002,3000,failed,2026-05-24T22:12:00,customer2@example.com,PAYSTACK,
