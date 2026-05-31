@@ -15,8 +15,13 @@ function App() {
   const [location, setLocation] = useState('Abuja')
   const [contactEmail, setContactEmail] = useState('pilot@example.com')
   const [contactPhone, setContactPhone] = useState('08012345678')
-  const [businessId, setBusinessId] = useState(2)
+  const [businessId, setBusinessId] = useState<number | null>(null)
+
   const [csvFile, setCsvFile] = useState<File | null>(null)
+
+  function show(data: unknown) {
+    setMessage(JSON.stringify(data, null, 2))
+  }
 
   async function registerUser() {
     const response = await fetch(`${API_URL}/auth/register`, {
@@ -24,7 +29,8 @@ function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ full_name: fullName, email, password }),
     })
-    setMessage(JSON.stringify(await response.json(), null, 2))
+
+    show(await response.json())
   }
 
   async function loginUser() {
@@ -35,8 +41,12 @@ function App() {
     })
 
     const data = await response.json()
-    if (data.access_token) setToken(data.access_token)
-    setMessage(JSON.stringify(data, null, 2))
+
+    if (data.access_token) {
+      setToken(data.access_token)
+    }
+
+    show(data)
   }
 
   async function createBusiness() {
@@ -56,11 +66,20 @@ function App() {
     })
 
     const data = await response.json()
-    if (data.business_id) setBusinessId(data.business_id)
-    setMessage(JSON.stringify(data, null, 2))
+
+    if (data.business_id) {
+      setBusinessId(data.business_id)
+    }
+
+    show(data)
   }
 
   async function uploadCsv() {
+    if (!businessId) {
+      setMessage('Please create a business first.')
+      return
+    }
+
     if (!csvFile) {
       setMessage('Please choose a CSV file first.')
       return
@@ -76,10 +95,15 @@ function App() {
       body: formData,
     })
 
-    setMessage(JSON.stringify(await response.json(), null, 2))
+    show(await response.json())
   }
 
   async function runReconciliation() {
+    if (!businessId) {
+      setMessage('Please create a business first.')
+      return
+    }
+
     const response = await fetch(
       `${API_URL}/reconciliation/run?business_id=${businessId}`,
       {
@@ -88,10 +112,15 @@ function App() {
       }
     )
 
-    setMessage(JSON.stringify(await response.json(), null, 2))
+    show(await response.json())
   }
 
   async function viewDashboard() {
+    if (!businessId) {
+      setMessage('Please create a business first.')
+      return
+    }
+
     const response = await fetch(
       `${API_URL}/dashboard/summary?business_id=${businessId}`,
       {
@@ -99,10 +128,15 @@ function App() {
       }
     )
 
-    setMessage(JSON.stringify(await response.json(), null, 2))
+    show(await response.json())
   }
 
   async function exportCsv() {
+    if (!businessId) {
+      setMessage('Please create a business first.')
+      return
+    }
+
     const response = await fetch(
       `${API_URL}/export/transactions?business_id=${businessId}`,
       {
@@ -138,7 +172,11 @@ function App() {
         <input value={email} onChange={(e) => setEmail(e.target.value)} />
 
         <label>Password</label>
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" />
+        <input
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          type="password"
+        />
 
         <div className="actions">
           <button onClick={registerUser}>Register</button>
@@ -152,7 +190,10 @@ function App() {
         <h2>2. Create Business</h2>
 
         <label>Business Name</label>
-        <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+        <input
+          value={businessName}
+          onChange={(e) => setBusinessName(e.target.value)}
+        />
 
         <label>Category</label>
         <input value={category} onChange={(e) => setCategory(e.target.value)} />
@@ -161,33 +202,59 @@ function App() {
         <input value={location} onChange={(e) => setLocation(e.target.value)} />
 
         <label>Contact Email</label>
-        <input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+        <input
+          value={contactEmail}
+          onChange={(e) => setContactEmail(e.target.value)}
+        />
 
         <label>Contact Phone</label>
-        <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+        <input
+          value={contactPhone}
+          onChange={(e) => setContactPhone(e.target.value)}
+        />
 
-        <button disabled={!token} onClick={createBusiness}>Create Business</button>
+        <button disabled={!token} onClick={createBusiness}>
+          Create Business
+        </button>
+
+        {businessId && (
+          <p className="success">Active Business ID: {businessId}</p>
+        )}
       </section>
 
       <section className="panel">
         <h2>3. Upload CSV</h2>
 
-        <label>Business ID</label>
-        <input type="number" value={businessId} onChange={(e) => setBusinessId(Number(e.target.value))} />
+        <p>
+          Active Business:{' '}
+          <strong>{businessId ? businessId : 'Create business first'}</strong>
+        </p>
 
         <label>CSV File</label>
-        <input type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] || null)} />
+        <input
+          type="file"
+          accept=".csv"
+          onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+        />
 
-        <button disabled={!token} onClick={uploadCsv}>Upload CSV</button>
+        <button disabled={!token || !businessId} onClick={uploadCsv}>
+          Upload CSV
+        </button>
       </section>
 
       <section className="panel">
         <h2>4. Pilot Actions</h2>
 
         <div className="actions">
-          <button disabled={!token} onClick={runReconciliation}>Run Reconciliation</button>
-          <button disabled={!token} onClick={viewDashboard}>View Dashboard</button>
-          <button disabled={!token} onClick={exportCsv}>Export CSV</button>
+          <button disabled={!token || !businessId} onClick={runReconciliation}>
+            Run Reconciliation
+          </button>
+          <button disabled={!token || !businessId} onClick={viewDashboard}>
+            View Dashboard
+          </button>
+          <button disabled={!token || !businessId} onClick={exportCsv}>
+            Export CSV
+          </button>
         </div>
       </section>
 
