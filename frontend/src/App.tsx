@@ -234,20 +234,20 @@ function renderFriendlyResponse(response: unknown) {
 }
 
 function App() {
-  const [fullName, setFullName] = useState('Enter Full Name')
-  const [email, setEmail] = useState('Enter Your Email')
-  const [password, setPassword] = useState('testpassword123')
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [token, setToken] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [businessMessage, setBusinessMessage] = useState('')
   const [csvMessage, setCsvMessage] = useState('')
   const [responseData, setResponseData] = useState<unknown>(null)
 
-  const [businessName, setBusinessName] = useState('Enter Name of Business')
-  const [category, setCategory] = useState('Enter Category E.g Food, Retail, Pharmacy')
-  const [location, setLocation] = useState('Enter Your City')
-  const [contactEmail, setContactEmail] = useState('Enter Contact Email')
-  const [contactPhone, setContactPhone] = useState('Enter Contact Phone')
+  const [businessName, setBusinessName] = useState('')
+  const [category, setCategory] = useState('')
+  const [location, setLocation] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
   const [businessId, setBusinessId] = useState<number | null>(null)
 
   const [csvFile, setCsvFile] = useState<File | null>(null)
