@@ -267,21 +267,23 @@ function App() {
   setAuthMessage(getString(data.message) || 'User registered successfully')
 }
 
-  async function loginUser() {
-    const response = await fetch(`${API_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
+async function loginUser() {
+  const response = await fetch(`${API_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
 
-    const data = await response.json()
+  const data = await response.json()
 
-    if (data.access_token) {
-      setToken(data.access_token)
-    }
-
+  if (data.access_token) {
+    setToken(data.access_token)
     setAuthMessage('Logged in successfully.')
+    return
   }
+
+  setAuthMessage(getString(data.detail) || getString(data.message) || 'Login failed.')
+}
 
   async function createBusiness() {
     const response = await fetch(`${API_URL}/businesses`, {
