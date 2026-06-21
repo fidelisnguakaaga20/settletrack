@@ -3,35 +3,269 @@ import './App.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
+type ApiObject = Record<string, unknown>
+
+function isObject(value: unknown): value is ApiObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getNumber(value: unknown): number {
+  return typeof value === 'number' ? value : 0
+}
+
+function getString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function getCsvUploadMessage(data: unknown): string {
+  if (!data || typeof data !== 'object') {
+    return 'CSV upload completed, but no readable response was returned.'
+  }
+
+  const record = data as Record<string, unknown>
+
+  const imported =
+    typeof record.imported === 'number'
+      ? record.imported
+      : typeof record.imported_count === 'number'
+        ? record.imported_count
+        : typeof record.transactions_imported === 'number'
+          ? record.transactions_imported
+          : null
+
+  const message =
+    typeof record.message === 'string'
+      ? record.message
+      : typeof record.detail === 'string'
+        ? record.detail
+        : ''
+
+  const missingColumns = Array.isArray(record.missing_columns)
+    ? record.missing_columns.map(String)
+    : Array.isArray(record.missingColumns)
+      ? record.missingColumns.map(String)
+      : []
+
+  const errors = Array.isArray(record.errors)
+    ? record.errors.map(String)
+    : Array.isArray(record.error)
+      ? record.error.map(String)
+      : []
+
+  if (missingColumns.length > 0) {
+    return `No transactions were imported.\nMissing columns: ${missingColumns.join(', ')}`
+  }
+
+  const missingFromErrors = errors.filter((item) =>
+    item.toLowerCase().includes('missing')
+  )
+
+  if (missingFromErrors.length > 0) {
+    return `No transactions were imported.\n${missingFromErrors.join('\n')}`
+  }
+
+  if (imported === 0) {
+    return message || 'No transactions were imported.'
+  }
+
+  if (typeof imported === 'number') {
+    return `Imported ${imported} transactions successfully.`
+  }
+
+  return message || 'CSV upload completed.'
+}
+
+function pluralize(count: number, word: string) {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
+}
+
+function countByReason(items: unknown[]): Record<string, number> {
+  return items.reduce<Record<string, number>>((acc, item) => {
+    if (!isObject(item)) return acc
+
+    const reason = getString(item.reason) || 'No reason provided'
+    acc[reason] = (acc[reason] || 0) + 1
+
+    return acc
+  }, {})
+}
+
+function countByType(items: unknown[], key: string, expected: string): number {
+  return items.filter((item) => {
+    if (!isObject(item)) return false
+    return getString(item[key]).toUpperCase() === expected
+  }).length
+}
+
+function renderFriendlyResponse(response: unknown) {
+  if (!response) {
+    return <p className="response-line muted">No response yet.</p>
+  }
+
+  if (typeof response === 'string') {
+    return <p className="response-line">{response}</p>
+  }
+
+  if (!isObject(response)) {
+    return <p className="response-line">Action completed.</p>
+  }
+
+  if ('access_token' in response) {
+    return <p className="response-line success">Logged in successfully.</p>
+  }
+
+  if ('imported' in response || 'errors' in response) {
+    const imported = getNumber(response.imported)
+    const errors = Array.isArray(response.errors) ? response.errors : []
+    const failedRows = getNumber(response.failed_rows)
+
+    return (
+      <div className="response-summary">
+        {imported === 0 && errors.length > 0 ? (
+          <>
+            <p className="response-line error">No transactions were imported.</p>
+            <p className="response-line">{errors.map(String).join(', ')}</p>
+          </>
+        ) : (
+          <p className="response-line success">
+            Imported {imported} transactions successfully.
+          </p>
+        )}
+
+        {failedRows > 0 && (
+          <p className="response-line warning">
+            {pluralize(failedRows, 'row')} had issues.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  const hasDashboardFields =
+    'total_payments' in response ||
+    'successful_payments' in response ||
+    'failed_payments' in response ||
+    'mismatches_found' in response ||
+    'mismatch_count' in response ||
+    'total_successful_amount' in response
+
+  if (hasDashboardFields) {
+    return (
+      <div className="response-grid">
+        <p>Total payments: {getNumber(response.total_payments)}</p>
+        <p>Successful payments: {getNumber(response.successful_payments)}</p>
+        <p>Failed payments: {getNumber(response.failed_payments)}</p>
+        <p>
+          Mismatches found:{' '}
+          {getNumber(response.mismatches_found) || getNumber(response.mismatch_count)}
+        </p>
+        <p>
+          Total successful amount: ₦
+          {getNumber(response.total_successful_amount).toLocaleString()}
+        </p>
+      </div>
+    )
+  }
+
+  const results = Array.isArray(response.results) ? response.results : []
+  const mismatches = Array.isArray(response.mismatches)
+    ? response.mismatches
+    : []
+
+  if (results.length > 0 || mismatches.length > 0) {
+    const unmatchedCount =
+      countByType(results, 'result_type', 'UNMATCHED') +
+      countByType(mismatches, 'mismatch_type', 'UNMATCHED')
+
+    const duplicateCount =
+      countByType(results, 'result_type', 'DUPLICATE') +
+      countByType(mismatches, 'mismatch_type', 'DUPLICATE')
+
+    const amountMismatchCount =
+      countByType(results, 'result_type', 'AMOUNT_MISMATCH') +
+      countByType(mismatches, 'mismatch_type', 'AMOUNT_MISMATCH')
+
+    const settlementPendingCount =
+      countByType(results, 'result_type', 'SETTLEMENT_PENDING') +
+      countByType(mismatches, 'mismatch_type', 'SETTLEMENT_PENDING')
+
+    const reasonCounts = countByReason([...results, ...mismatches])
+
+    return (
+      <div className="response-summary">
+        <p className="response-line success">Reconciliation completed.</p>
+        <p>Unmatched transactions: {unmatchedCount}</p>
+        <p>Mismatches found: {mismatches.length}</p>
+        <p>Duplicates detected: {duplicateCount}</p>
+        <p>Amount mismatches: {amountMismatchCount}</p>
+        <p>Settlement pending: {settlementPendingCount}</p>
+
+        {Object.keys(reasonCounts).length > 0 && (
+          <div className="reason-list">
+            <strong>Reasons</strong>
+            {Object.entries(reasonCounts).map(([reason, count]) => (
+              <p key={reason}>
+                {reason}: {pluralize(count, 'transaction')}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="response-summary">
+      {'message' in response && (
+        <p className="response-line success">{getString(response.message)}</p>
+      )}
+
+      {'business_id' in response && (
+        <p className="response-line">
+          Active Business ID: {getNumber(response.business_id)}
+        </p>
+      )}
+
+      {!('message' in response) && !('business_id' in response) && (
+        <p className="response-line">Action completed.</p>
+      )}
+    </div>
+  )
+}
+
 function App() {
-  const [fullName, setFullName] = useState('Pilot User')
-  const [email, setEmail] = useState('pilot@example.com')
+  const [fullName, setFullName] = useState('Enter Full Name')
+  const [email, setEmail] = useState('Enter Your Email')
   const [password, setPassword] = useState('testpassword123')
   const [token, setToken] = useState('')
-  const [message, setMessage] = useState('')
+  const [authMessage, setAuthMessage] = useState('')
+  const [businessMessage, setBusinessMessage] = useState('')
+  const [csvMessage, setCsvMessage] = useState('')
+  const [responseData, setResponseData] = useState<unknown>(null)
 
-  const [businessName, setBusinessName] = useState('Pilot Pharmacy')
-  const [category, setCategory] = useState('Pharmacy')
-  const [location, setLocation] = useState('Abuja')
-  const [contactEmail, setContactEmail] = useState('pilot@example.com')
-  const [contactPhone, setContactPhone] = useState('08012345678')
+  const [businessName, setBusinessName] = useState('Enter Name of Business')
+  const [category, setCategory] = useState('Enter Category E.g Food, Retail, Pharmacy')
+  const [location, setLocation] = useState('Enter Your City')
+  const [contactEmail, setContactEmail] = useState('Enter Contact Email')
+  const [contactPhone, setContactPhone] = useState('Enter Contact Phone')
   const [businessId, setBusinessId] = useState<number | null>(null)
 
   const [csvFile, setCsvFile] = useState<File | null>(null)
 
   function show(data: unknown) {
-    setMessage(JSON.stringify(data, null, 2))
+    setResponseData(data)
   }
 
   async function registerUser() {
-    const response = await fetch(`${API_URL}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName, email, password }),
-    })
+  const response = await fetch(`${API_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name: fullName, email, password }),
+  })
 
-    show(await response.json())
-  }
+  const data = await response.json()
+  setAuthMessage(getString(data.message) || 'User registered successfully')
+}
 
   async function loginUser() {
     const response = await fetch(`${API_URL}/auth/login`, {
@@ -46,7 +280,7 @@ function App() {
       setToken(data.access_token)
     }
 
-    show(data)
+    setAuthMessage('Logged in successfully.')
   }
 
   async function createBusiness() {
@@ -71,17 +305,19 @@ function App() {
       setBusinessId(data.business_id)
     }
 
-    show(data)
+  setBusinessMessage(
+    `${getString(data.message) || 'Business created successfully.'}\nActive Business ID: ${data.business_id}`
+  )
   }
 
   async function uploadCsv() {
     if (!businessId) {
-      setMessage('Please create a business first.')
+      setCsvMessage('Please create a business first.')
       return
     }
 
     if (!csvFile) {
-      setMessage('Please choose a CSV file first.')
+      setCsvMessage('Please choose a CSV file first.')
       return
     }
 
@@ -95,12 +331,13 @@ function App() {
       body: formData,
     })
 
-    show(await response.json())
+  const data = await response.json()
+    setCsvMessage(getCsvUploadMessage(data))
   }
 
   async function runReconciliation() {
     if (!businessId) {
-      setMessage('Please create a business first.')
+      show('Please create a business first.')
       return
     }
 
@@ -117,7 +354,7 @@ function App() {
 
   async function viewDashboard() {
     if (!businessId) {
-      setMessage('Please create a business first.')
+      show('Please create a business first.')
       return
     }
 
@@ -133,7 +370,7 @@ function App() {
 
   async function exportCsv() {
     if (!businessId) {
-      setMessage('Please create a business first.')
+      show('Please create a business first.')
       return
     }
 
@@ -159,11 +396,11 @@ function App() {
     <main className="app">
       <section className="hero">
         <h1>SettleTrack</h1>
-        <p>Payment reconciliation and settlement reporting for Nigerian SMEs.</p>
+        <p>Payment reconciliation and settlement reporting for SMEs.</p>
       </section>
 
       <section className="panel">
-        <h2>1. Pilot Login Test</h2>
+        <h2>1. Login </h2>
 
         <label>Full Name</label>
         <input value={fullName} onChange={(e) => setFullName(e.target.value)} />
@@ -183,7 +420,7 @@ function App() {
           <button onClick={loginUser}>Login</button>
         </div>
 
-        {token && <p className="success">Logged in successfully.</p>}
+        {authMessage && <p className="success local-feedback">{authMessage}</p>}
       </section>
 
       <section className="panel">
@@ -217,8 +454,12 @@ function App() {
           Create Business
         </button>
 
-        {businessId && (
-          <p className="success">Active Business ID: {businessId}</p>
+        {businessMessage && (
+          <div className="success local-feedback">
+            {businessMessage.split('\n').map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
         )}
       </section>
 
@@ -240,7 +481,15 @@ function App() {
         <button disabled={!token || !businessId} onClick={uploadCsv}>
           Upload CSV
         </button>
-      </section>
+
+        {csvMessage && (
+          <div className="success local-feedback">
+            {csvMessage.split('\n').map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )}
+        </section>
 
       <section className="panel">
         <h2>4. Pilot Actions</h2>
@@ -258,9 +507,12 @@ function App() {
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel response-panel">
         <h2>Response</h2>
-        <pre>{message}</pre>
+
+        <div className="friendly-response">
+          {renderFriendlyResponse(responseData)}
+        </div>
       </section>
     </main>
   )
