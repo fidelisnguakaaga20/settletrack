@@ -8,7 +8,7 @@ from app.models.business import Business
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.services.auth_dependency import get_current_user
-from app.services.csv_import import parse_transaction_csv
+from app.services.csv_import import parse_smart_transaction_file
 
 router = APIRouter(prefix="/csv", tags=["CSV Upload"])
 
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/csv", tags=["CSV Upload"])
 @router.post("/transactions")
 async def upload_transactions_csv(
     business_id: int = Form(...),
+    provider: str | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -28,44 +29,53 @@ async def upload_transactions_csv(
     if not business:
         raise HTTPException(status_code=404, detail="Business not found")
 
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are allowed")
-
     content = await file.read()
-    decoded_content = content.decode("utf-8")
 
-    valid_rows, errors = parse_transaction_csv(decoded_content)
+    import_result = parse_smart_transaction_file(
+        filename=file.filename or "",
+        content=content,
+        provider_fallback=provider,
+    )
 
-    if errors:
-        return {
-            "imported": 0,
-            "errors": errors
-        }
+    valid_rows = import_result.pop("valid_rows", [])
+
+    if import_result["message"] != "Smart import completed.":
+        return import_result
 
     imported_count = 0
-    skipped_errors = []
+    rejected_rows = list(import_result["rejected_rows"])
 
     for row in valid_rows:
         existing_transaction = db.query(Transaction).filter(
             Transaction.business_id == business_id,
             Transaction.transaction_reference == row["transaction_reference"],
-            Transaction.source == "CSV"
+            Transaction.source == "Smart Import"
         ).first()
 
         if existing_transaction:
-            skipped_errors.append(
-                f"Duplicate skipped: {row['transaction_reference']}"
-            )
+            rejected_rows.append({
+                "row": None,
+                "reason": f"Duplicate skipped: {row['transaction_reference']}",
+            })
+            continue
+
+        try:
+            payment_date = datetime.fromisoformat(row["payment_date"])
+        except ValueError:
+            rejected_rows.append({
+                "row": None,
+                "reason": f"Invalid date: {row['payment_date']}",
+            })
             continue
 
         transaction = Transaction(
             business_id=business_id,
             provider=row["provider"],
-            source="CSV",
+            source="Smart Import",
             transaction_reference=row["transaction_reference"],
             amount=row["amount"],
             status=row["status"],
-            payment_date=datetime.fromisoformat(row["payment_date"]),
+            payment_date=payment_date,
             customer_identifier=row.get("customer_identifier"),
             settlement_reference=row.get("settlement_reference") or None
         )
@@ -75,7 +85,8 @@ async def upload_transactions_csv(
 
     db.commit()
 
-    return {
-        "imported": imported_count,
-        "errors": skipped_errors
-    }
+    import_result["imported"] = imported_count
+    import_result["rejected"] = len(rejected_rows)
+    import_result["rejected_rows"] = rejected_rows
+
+    return import_result

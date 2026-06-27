@@ -18,61 +18,61 @@ function getString(value: unknown): string {
 }
 
 function getCsvUploadMessage(data: unknown): string {
-  if (!data || typeof data !== 'object') {
-    return 'CSV upload completed, but no readable response was returned.'
+  if (!isObject(data)) {
+    return 'Smart import completed, but no readable response was returned.'
   }
 
-  const record = data as Record<string, unknown>
+  const message = getString(data.message) || getString(data.detail) || 'Smart import completed.'
+  const imported = getNumber(data.imported)
+  const rejected = getNumber(data.rejected)
+  const detectedFileType = getString(data.detected_file_type)
+  if (message !== 'Smart import completed.') {
+  return message
+}
 
-  const imported =
-    typeof record.imported === 'number'
-      ? record.imported
-      : typeof record.imported_count === 'number'
-        ? record.imported_count
-        : typeof record.transactions_imported === 'number'
-          ? record.transactions_imported
-          : null
+  const lines = [message, `Imported: ${imported}`, `Rejected: ${rejected}`]
 
-  const message =
-    typeof record.message === 'string'
-      ? record.message
-      : typeof record.detail === 'string'
-        ? record.detail
-        : ''
-
-  const missingColumns = Array.isArray(record.missing_columns)
-    ? record.missing_columns.map(String)
-    : Array.isArray(record.missingColumns)
-      ? record.missingColumns.map(String)
-      : []
-
-  const errors = Array.isArray(record.errors)
-    ? record.errors.map(String)
-    : Array.isArray(record.error)
-      ? record.error.map(String)
-      : []
-
-  if (missingColumns.length > 0) {
-    return `No transactions were imported.\nMissing columns: ${missingColumns.join(', ')}`
+  if (detectedFileType) {
+    lines.push(
+      `Detected file type: ${
+        detectedFileType === 'xlsx' ? 'Excel' : detectedFileType.toUpperCase()
+      }`
+    )
   }
 
-  const missingFromErrors = errors.filter((item) =>
-    item.toLowerCase().includes('missing')
-  )
-
-  if (missingFromErrors.length > 0) {
-    return `No transactions were imported.\n${missingFromErrors.join('\n')}`
+  if (isObject(data.mapped_columns) && Object.keys(data.mapped_columns).length > 0) {
+    lines.push('Mapped columns:')
+    Object.entries(data.mapped_columns).forEach(([source, target]) => {
+      lines.push(`${source} -> ${String(target)}`)
+    })
   }
 
-  if (imported === 0) {
-    return message || 'No transactions were imported.'
+  if (
+    Array.isArray(data.missing_required_fields) &&
+    data.missing_required_fields.length > 0
+  ) {
+    lines.push(
+      `Missing required fields: ${data.missing_required_fields.map(String).join(', ')}`
+    )
   }
 
-  if (typeof imported === 'number') {
-    return `Imported ${imported} transactions successfully.`
+  if (Array.isArray(data.rejected_rows) && data.rejected_rows.length > 0) {
+    lines.push('Some rows were not imported:')
+
+    data.rejected_rows.forEach((item) => {
+      if (!isObject(item)) return
+
+      const row =
+        item.row === null || item.row === undefined
+          ? 'Unknown row'
+          : `Row ${String(item.row)}`
+
+      const reason = getString(item.reason) || 'No reason provided'
+      lines.push(`${row}: ${reason}`)
+    })
   }
 
-  return message || 'CSV upload completed.'
+  return lines.join('\n')
 }
 
 function pluralize(count: number, word: string) {
@@ -97,139 +97,104 @@ function countByType(items: unknown[], key: string, expected: string): number {
   }).length
 }
 
-function renderFriendlyResponse(response: unknown) {
-  if (!response) {
-    return <p className="response-line muted">No response yet.</p>
+function renderTextLines(message: string) {
+  return message.split('\n').map((line) => <p key={line}>{line}</p>)
+}
+
+function renderReconciliationMessage(message: unknown) {
+  if (!message) return null
+
+  if (typeof message === 'string') {
+    return <p>{message}</p>
   }
 
-  if (typeof response === 'string') {
-    return <p className="response-line">{response}</p>
+  if (!isObject(message)) {
+    return <p>Reconciliation completed.</p>
   }
 
-  if (!isObject(response)) {
-    return <p className="response-line">Action completed.</p>
+  const results = Array.isArray(message.results) ? message.results : []
+  const mismatches = Array.isArray(message.mismatches) ? message.mismatches : []
+
+  const unmatchedCount =
+    countByType(results, 'result_type', 'UNMATCHED') +
+    countByType(mismatches, 'mismatch_type', 'UNMATCHED')
+
+  const duplicateCount =
+    countByType(results, 'result_type', 'DUPLICATE') +
+    countByType(mismatches, 'mismatch_type', 'DUPLICATE')
+
+  const amountMismatchCount =
+    countByType(results, 'result_type', 'AMOUNT_MISMATCH') +
+    countByType(mismatches, 'mismatch_type', 'AMOUNT_MISMATCH')
+
+  const settlementPendingCount =
+    countByType(results, 'result_type', 'SETTLEMENT_PENDING') +
+    countByType(mismatches, 'mismatch_type', 'SETTLEMENT_PENDING')
+
+  const reasonCounts = countByReason([...results, ...mismatches])
+
+  return (
+    <>
+      <p>Reconciliation completed.</p>
+      <p>Unmatched transactions: {unmatchedCount}</p>
+      <p>Mismatches found: {mismatches.length}</p>
+      <p>Duplicates detected: {duplicateCount}</p>
+      <p>Amount mismatches: {amountMismatchCount}</p>
+      <p>Settlement pending: {settlementPendingCount}</p>
+
+      {Object.keys(reasonCounts).length > 0 && (
+        <div className="reason-list">
+          <strong>Reasons</strong>
+          {Object.entries(reasonCounts).map(([reason, count]) => (
+            <p key={reason}>
+              {reason}: {pluralize(count, 'transaction')}
+            </p>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function renderDashboardMessage(message: unknown) {
+  if (!message) return null
+
+  if (typeof message === 'string') {
+    return <p>{message}</p>
   }
 
-  if ('access_token' in response) {
-    return <p className="response-line success">Logged in successfully.</p>
-  }
-
-  if ('imported' in response || 'errors' in response) {
-    const imported = getNumber(response.imported)
-    const errors = Array.isArray(response.errors) ? response.errors : []
-    const failedRows = getNumber(response.failed_rows)
-
-    return (
-      <div className="response-summary">
-        {imported === 0 && errors.length > 0 ? (
-          <>
-            <p className="response-line error">No transactions were imported.</p>
-            <p className="response-line">{errors.map(String).join(', ')}</p>
-          </>
-        ) : (
-          <p className="response-line success">
-            Imported {imported} transactions successfully.
-          </p>
-        )}
-
-        {failedRows > 0 && (
-          <p className="response-line warning">
-            {pluralize(failedRows, 'row')} had issues.
-          </p>
-        )}
-      </div>
-    )
-  }
-
-  const hasDashboardFields =
-    'total_payments' in response ||
-    'successful_payments' in response ||
-    'failed_payments' in response ||
-    'mismatches_found' in response ||
-    'mismatch_count' in response ||
-    'total_successful_amount' in response
-
-  if (hasDashboardFields) {
-    return (
-      <div className="response-grid">
-        <p>Total payments: {getNumber(response.total_payments)}</p>
-        <p>Successful payments: {getNumber(response.successful_payments)}</p>
-        <p>Failed payments: {getNumber(response.failed_payments)}</p>
-        <p>
-          Mismatches found:{' '}
-          {getNumber(response.mismatches_found) || getNumber(response.mismatch_count)}
-        </p>
-        <p>
-          Total successful amount: ₦
-          {getNumber(response.total_successful_amount).toLocaleString()}
-        </p>
-      </div>
-    )
-  }
-
-  const results = Array.isArray(response.results) ? response.results : []
-  const mismatches = Array.isArray(response.mismatches)
-    ? response.mismatches
-    : []
-
-  if (results.length > 0 || mismatches.length > 0) {
-    const unmatchedCount =
-      countByType(results, 'result_type', 'UNMATCHED') +
-      countByType(mismatches, 'mismatch_type', 'UNMATCHED')
-
-    const duplicateCount =
-      countByType(results, 'result_type', 'DUPLICATE') +
-      countByType(mismatches, 'mismatch_type', 'DUPLICATE')
-
-    const amountMismatchCount =
-      countByType(results, 'result_type', 'AMOUNT_MISMATCH') +
-      countByType(mismatches, 'mismatch_type', 'AMOUNT_MISMATCH')
-
-    const settlementPendingCount =
-      countByType(results, 'result_type', 'SETTLEMENT_PENDING') +
-      countByType(mismatches, 'mismatch_type', 'SETTLEMENT_PENDING')
-
-    const reasonCounts = countByReason([...results, ...mismatches])
-
-    return (
-      <div className="response-summary">
-        <p className="response-line success">Reconciliation completed.</p>
-        <p>Unmatched transactions: {unmatchedCount}</p>
-        <p>Mismatches found: {mismatches.length}</p>
-        <p>Duplicates detected: {duplicateCount}</p>
-        <p>Amount mismatches: {amountMismatchCount}</p>
-        <p>Settlement pending: {settlementPendingCount}</p>
-
-        {Object.keys(reasonCounts).length > 0 && (
-          <div className="reason-list">
-            <strong>Reasons</strong>
-            {Object.entries(reasonCounts).map(([reason, count]) => (
-              <p key={reason}>
-                {reason}: {pluralize(count, 'transaction')}
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
-    )
+  if (!isObject(message)) {
+    return <p>Dashboard loaded.</p>
   }
 
   return (
-    <div className="response-summary">
-      {'message' in response && (
-        <p className="response-line success">{getString(response.message)}</p>
+    <>
+      {'total_payments' in message && (
+        <p>Total payments: {getNumber(message.total_payments)}</p>
       )}
 
-      {'business_id' in response && (
-        <p className="response-line">
-          Active Business ID: {getNumber(response.business_id)}
+      {'successful_payments' in message && (
+        <p>Successful payments: {getNumber(message.successful_payments)}</p>
+      )}
+
+      {'failed_payments' in message && (
+        <p>Failed payments: {getNumber(message.failed_payments)}</p>
+      )}
+
+      {('mismatches_found' in message || 'mismatch_count' in message) && (
+        <p>
+          Mismatches found:{' '}
+          {getNumber(message.mismatches_found) || getNumber(message.mismatch_count)}
         </p>
       )}
 
-      {!('message' in response) && !('business_id' in response) && (
-        <p className="response-line">Action completed.</p>
+      {'total_successful_amount' in message && (
+        <p>
+          Total successful amount: ₦
+          {getNumber(message.total_successful_amount).toLocaleString()}
+        </p>
       )}
-    </div>
+    </>
   )
 }
 
@@ -241,7 +206,30 @@ function App() {
   const [authMessage, setAuthMessage] = useState('')
   const [businessMessage, setBusinessMessage] = useState('')
   const [csvMessage, setCsvMessage] = useState('')
-  const [responseData, setResponseData] = useState<unknown>(null)
+
+  const [reconciliationMessage, setReconciliationMessage] = useState<unknown>(null)
+  const [dashboardMessage, setDashboardMessage] = useState<unknown>(null)
+  const [exportMessage, setExportMessage] = useState('')
+
+  const [loadingStates, setLoadingStates] = useState({
+    register: false,
+    login: false,
+    createBusiness: false,
+    uploadCsv: false,
+    runReconciliation: false,
+    viewDashboard: false,
+    exportCsv: false,
+  })
+
+  const setActionLoading = (
+    action: keyof typeof loadingStates,
+    value: boolean
+  ) => {
+    setLoadingStates((current) => ({
+      ...current,
+      [action]: value,
+    }))
+  }
 
   const [businessName, setBusinessName] = useState('')
   const [category, setCategory] = useState('')
@@ -251,65 +239,90 @@ function App() {
   const [businessId, setBusinessId] = useState<number | null>(null)
 
   const [csvFile, setCsvFile] = useState<File | null>(null)
-
-  function show(data: unknown) {
-    setResponseData(data)
-  }
+  const [selectedProvider, setSelectedProvider] = useState('Paystack')
 
   async function registerUser() {
-  const response = await fetch(`${API_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ full_name: fullName, email, password }),
-  })
+    setActionLoading('register', true)
 
-  const data = await response.json()
-  setAuthMessage(getString(data.message) || 'User registered successfully')
-}
+    try {
+      const response = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: fullName, email, password }),
+      })
 
-async function loginUser() {
-  const response = await fetch(`${API_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
-
-  const data = await response.json()
-
-  if (data.access_token) {
-    setToken(data.access_token)
-    setAuthMessage('Logged in successfully.')
-    return
+      const data = await response.json()
+      setAuthMessage(getString(data.message) || 'User registered successfully.')
+    } catch {
+      setAuthMessage('Registration failed.')
+    } finally {
+      setActionLoading('register', false)
+    }
   }
 
-  setAuthMessage(getString(data.detail) || getString(data.message) || 'Login failed.')
-}
+  async function loginUser() {
+    setActionLoading('login', true)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const data = await response.json()
+
+      if (data.access_token) {
+        setToken(data.access_token)
+        setAuthMessage('Logged in successfully.')
+        return
+      }
+
+      setAuthMessage(getString(data.detail) || getString(data.message) || 'Login failed.')
+    } catch {
+      setAuthMessage('Login failed.')
+    } finally {
+      setActionLoading('login', false)
+    }
+  }
 
   async function createBusiness() {
-    const response = await fetch(`${API_URL}/businesses`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        name: businessName,
-        category,
-        location,
-        contact_email: contactEmail,
-        contact_phone: contactPhone,
-      }),
-    })
+    setActionLoading('createBusiness', true)
 
-    const data = await response.json()
+    try {
+      const response = await fetch(`${API_URL}/businesses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: businessName,
+          category,
+          location,
+          contact_email: contactEmail,
+          contact_phone: contactPhone,
+        }),
+      })
 
-    if (data.business_id) {
-      setBusinessId(data.business_id)
+      const data = await response.json()
+
+      if (data.business_id) {
+        setBusinessId(data.business_id)
+        setBusinessMessage(
+          `${getString(data.message) || 'Business created successfully.'}\nActive Business ID: ${data.business_id}`
+        )
+        return
+      }
+
+      setBusinessMessage(
+        getString(data.detail) || getString(data.message) || 'Business creation failed.'
+      )
+    } catch {
+      setBusinessMessage('Business creation failed.')
+    } finally {
+      setActionLoading('createBusiness', false)
     }
-
-  setBusinessMessage(
-    `${getString(data.message) || 'Business created successfully.'}\nActive Business ID: ${data.business_id}`
-  )
   }
 
   async function uploadCsv() {
@@ -319,79 +332,120 @@ async function loginUser() {
     }
 
     if (!csvFile) {
-      setCsvMessage('Please choose a CSV file first.')
+      setCsvMessage('Please choose a CSV or Excel file first.')
       return
     }
 
-    const formData = new FormData()
-    formData.append('business_id', String(businessId))
-    formData.append('file', csvFile)
+    setActionLoading('uploadCsv', true)
 
-    const response = await fetch(`${API_URL}/csv/transactions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    })
+    try {
+      const formData = new FormData()
+      formData.append('business_id', String(businessId))
+      formData.append('file', csvFile)
+      formData.append('provider', selectedProvider)
 
-  const data = await response.json()
-    setCsvMessage(getCsvUploadMessage(data))
+      const response = await fetch(`${API_URL}/csv/transactions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+
+      const data = await response.json()
+      setCsvMessage(getCsvUploadMessage(data))
+    } catch {
+      setCsvMessage('Smart import failed. Please try again.')
+    } finally {
+      setActionLoading('uploadCsv', false)
+    }
   }
 
   async function runReconciliation() {
     if (!businessId) {
-      show('Please create a business first.')
+      setReconciliationMessage('Please create a business first.')
       return
     }
 
-    const response = await fetch(
-      `${API_URL}/reconciliation/run?business_id=${businessId}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    )
+    setActionLoading('runReconciliation', true)
 
-    show(await response.json())
+    try {
+      const response = await fetch(
+        `${API_URL}/reconciliation/run?business_id=${businessId}`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+
+      const data = await response.json()
+      setReconciliationMessage(data)
+    } catch {
+      setReconciliationMessage('Reconciliation failed. Please try again.')
+    } finally {
+      setActionLoading('runReconciliation', false)
+    }
   }
 
   async function viewDashboard() {
     if (!businessId) {
-      show('Please create a business first.')
+      setDashboardMessage('Please create a business first.')
       return
     }
 
-    const response = await fetch(
-      `${API_URL}/dashboard/summary?business_id=${businessId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    )
+    setActionLoading('viewDashboard', true)
 
-    show(await response.json())
+    try {
+      const response = await fetch(
+        `${API_URL}/dashboard/summary?business_id=${businessId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+
+      const data = await response.json()
+      setDashboardMessage(data)
+    } catch {
+      setDashboardMessage('Dashboard failed to load. Please try again.')
+    } finally {
+      setActionLoading('viewDashboard', false)
+    }
   }
 
   async function exportCsv() {
     if (!businessId) {
-      show('Please create a business first.')
+      setExportMessage('Please create a business first.')
       return
     }
 
-    const response = await fetch(
-      `${API_URL}/export/transactions?business_id=${businessId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
+    setActionLoading('exportCsv', true)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/export/transactions?business_id=${businessId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+
+      if (!response.ok) {
+        setExportMessage('CSV export failed. Please try again.')
+        return
       }
-    )
 
-    const blob = await response.blob()
-    const url = window.URL.createObjectURL(blob)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
 
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'settletrack-transactions.csv'
-    link.click()
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'settletrack-transactions.csv'
+      link.click()
 
-    window.URL.revokeObjectURL(url)
+      window.URL.revokeObjectURL(url)
+      setExportMessage('CSV exported successfully.')
+    } catch {
+      setExportMessage('CSV export failed. Please try again.')
+    } finally {
+      setActionLoading('exportCsv', false)
+    }
   }
 
   return (
@@ -402,7 +456,7 @@ async function loginUser() {
       </section>
 
       <section className="panel">
-        <h2>1. Login </h2>
+        <h2>1. Login</h2>
 
         <label>Full Name</label>
         <input value={fullName} onChange={(e) => setFullName(e.target.value)} />
@@ -418,8 +472,12 @@ async function loginUser() {
         />
 
         <div className="actions">
-          <button onClick={registerUser}>Register</button>
-          <button onClick={loginUser}>Login</button>
+          <button disabled={loadingStates.register} onClick={registerUser}>
+            {loadingStates.register ? 'Registering...' : 'Register'}
+          </button>
+          <button disabled={loadingStates.login} onClick={loginUser}>
+            {loadingStates.login ? 'Logging in...' : 'Login'}
+          </button>
         </div>
 
         {authMessage && <p className="success local-feedback">{authMessage}</p>}
@@ -452,8 +510,11 @@ async function loginUser() {
           onChange={(e) => setContactPhone(e.target.value)}
         />
 
-        <button disabled={!token} onClick={createBusiness}>
-          Create Business
+        <button
+          disabled={!token || loadingStates.createBusiness}
+          onClick={createBusiness}
+        >
+          {loadingStates.createBusiness ? 'Creating business...' : 'Create Business'}
         </button>
 
         {businessMessage && (
@@ -466,22 +527,42 @@ async function loginUser() {
       </section>
 
       <section className="panel">
-        <h2>3. Upload CSV</h2>
+        <h2>3. Smart Import Transactions</h2>
 
         <p>
           Active Business:{' '}
           <strong>{businessId ? businessId : 'Create business first'}</strong>
         </p>
 
-        <label>CSV File</label>
+        <p>
+          Upload CSV or Excel transaction file. SettleTrack will detect columns and
+          import what it can.
+        </p>
+
+        <label>Provider</label>
+        <select
+          value={selectedProvider}
+          onChange={(e) => setSelectedProvider(e.target.value)}
+        >
+          <option>Paystack</option>
+          <option>Flutterwave</option>
+          <option>Monnify</option>
+          <option>Bank Statement</option>
+          <option>Other</option>
+        </select>
+
+        <label>Transaction File</label>
         <input
           type="file"
-          accept=".csv"
+          accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg"
           onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
         />
 
-        <button disabled={!token || !businessId} onClick={uploadCsv}>
-          Upload CSV
+        <button
+          disabled={!token || !businessId || loadingStates.uploadCsv}
+          onClick={uploadCsv}
+        >
+          {loadingStates.uploadCsv ? 'Importing transactions...' : 'Import Transactions'}
         </button>
 
         {csvMessage && (
@@ -491,29 +572,54 @@ async function loginUser() {
             ))}
           </div>
         )}
-        </section>
+      </section>
 
       <section className="panel">
         <h2>4. Pilot Actions</h2>
 
-        <div className="actions">
-          <button disabled={!token || !businessId} onClick={runReconciliation}>
-            Run Reconciliation
+        <div className="action-block">
+          <button
+            disabled={!token || !businessId || loadingStates.runReconciliation}
+            onClick={runReconciliation}
+          >
+            {loadingStates.runReconciliation
+              ? 'Running reconciliation...'
+              : 'Run Reconciliation'}
           </button>
-          <button disabled={!token || !businessId} onClick={viewDashboard}>
-            View Dashboard
-          </button>
-          <button disabled={!token || !businessId} onClick={exportCsv}>
-            Export CSV
-          </button>
+
+          {reconciliationMessage !== null && (
+            <div className="local-result">
+              {renderReconciliationMessage(reconciliationMessage)}
+            </div>
+          )}
         </div>
-      </section>
 
-      <section className="panel response-panel">
-        <h2>Response</h2>
+        <div className="action-block">
+          <button
+            disabled={!token || !businessId || loadingStates.viewDashboard}
+            onClick={viewDashboard}
+          >
+            {loadingStates.viewDashboard ? 'Loading dashboard...' : 'View Dashboard'}
+          </button>
 
-        <div className="friendly-response">
-          {renderFriendlyResponse(responseData)}
+          {dashboardMessage !== null && (
+            <div className="local-result">
+              {renderDashboardMessage(dashboardMessage)}
+            </div>
+          )}
+        </div>
+
+        <div className="action-block">
+          <button
+            disabled={!token || !businessId || loadingStates.exportCsv}
+            onClick={exportCsv}
+          >
+            {loadingStates.exportCsv ? 'Exporting CSV...' : 'Export CSV'}
+          </button>
+
+          {exportMessage && (
+            <div className="local-message">{renderTextLines(exportMessage)}</div>
+          )}
         </div>
       </section>
     </main>
