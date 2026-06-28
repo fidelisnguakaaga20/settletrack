@@ -39,7 +39,7 @@ async def upload_transactions_csv(
 
     valid_rows = import_result.pop("valid_rows", [])
 
-    if import_result["message"] != "Smart import completed.":
+    if import_result["message"] != "File processed successfully.":
         return import_result
 
     imported_count = 0
@@ -87,6 +87,7 @@ async def upload_transactions_csv(
 
     import_result["imported"] = imported_count
     import_result["rejected"] = len(rejected_rows)
+    import_result["total_rejected_rows"] = len(rejected_rows)
     import_result["rejected_rows"] = rejected_rows
 
     return import_result

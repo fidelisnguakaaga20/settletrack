@@ -17,49 +17,88 @@ function getString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function getCsvUploadMessage(data: unknown): string {
-  if (!isObject(data)) {
-    return 'Smart import completed, but no readable response was returned.'
-  }
-
-  const message = getString(data.message) || getString(data.detail) || 'Smart import completed.'
-  const imported = getNumber(data.imported)
-  const rejected = getNumber(data.rejected)
-  const detectedFileType = getString(data.detected_file_type)
-  if (message !== 'Smart import completed.') {
-  return message
+function friendlyFileType(value: string): string {
+  if (value === 'xlsx') return 'Excel'
+  if (value === 'csv') return 'CSV'
+  if (value === 'pdf') return 'PDF'
+  if (['png', 'jpg', 'jpeg'].includes(value)) return 'Image'
+  return value ? value.toUpperCase() : 'Unknown'
 }
 
-  const lines = [message, `Imported: ${imported}`, `Rejected: ${rejected}`]
+function friendlyStatementType(value: string): string {
+  if (value === 'bank_statement') return 'Bank Statement'
+  if (value === 'transaction_table') return 'Transaction Table'
+  return value ? 'Unsupported' : ''
+}
 
-  if (detectedFileType) {
-    lines.push(
-      `Detected file type: ${
-        detectedFileType === 'xlsx' ? 'Excel' : detectedFileType.toUpperCase()
-      }`
-    )
+function friendlyFieldName(value: string): string {
+  const labels: Record<string, string> = {
+    transaction_reference: 'reference',
+    customer_identifier: 'customer/narration',
+    payment_date: 'payment date',
+    amount: 'amount',
+    provider: 'provider',
+    status: 'status',
   }
 
-  if (isObject(data.mapped_columns) && Object.keys(data.mapped_columns).length > 0) {
-    lines.push('Mapped columns:')
-    Object.entries(data.mapped_columns).forEach(([source, target]) => {
-      lines.push(`${source} -> ${String(target)}`)
-    })
+  return labels[value] || value.replaceAll('_', ' ')
+}
+
+function getCsvUploadMessage(data: unknown): string {
+  if (!isObject(data)) {
+    return 'We could not read this file clearly.'
+  }
+
+  const message = getString(data.message) || 'We could not read this file clearly.'
+  const imported = getNumber(data.imported)
+  const rejected = getNumber(data.total_rejected_rows) || getNumber(data.rejected)
+  const detectedFileType = getString(data.detected_file_type)
+  const detectedStatementType = getString(data.detected_statement_type)
+  const userGuidance = getString(data.user_guidance)
+
+  const lines = [message]
+
+  if (detectedStatementType && detectedStatementType !== 'unsupported') {
+    lines.push(`Statement type: ${friendlyStatementType(detectedStatementType)}`)
+  }
+
+  if (detectedFileType) {
+    lines.push(`File type: ${friendlyFileType(detectedFileType)}`)
+  }
+
+  lines.push(`Imported transactions: ${imported}`)
+  lines.push(`Rejected rows: ${rejected}`)
+
+  if (userGuidance) {
+    lines.push(userGuidance)
   }
 
   if (
     Array.isArray(data.missing_required_fields) &&
     data.missing_required_fields.length > 0
   ) {
+    lines.push('What happened:')
     lines.push(
-      `Missing required fields: ${data.missing_required_fields.map(String).join(', ')}`
+      `SettleTrack could not find: ${data.missing_required_fields
+        .map((field) => friendlyFieldName(String(field)))
+        .join(', ')}.`
     )
   }
 
-  if (Array.isArray(data.rejected_rows) && data.rejected_rows.length > 0) {
-    lines.push('Some rows were not imported:')
+  if (isObject(data.mapped_columns) && Object.keys(data.mapped_columns).length > 0) {
+    lines.push('Columns detected:')
+    Object.entries(data.mapped_columns).forEach(([source, target]) => {
+      lines.push(`${source} -> ${friendlyFieldName(String(target))}`)
+    })
+  }
 
-    data.rejected_rows.forEach((item) => {
+  if (Array.isArray(data.rejected_rows) && data.rejected_rows.length > 0) {
+    const visibleRejectedRows = data.rejected_rows.slice(0, 5)
+    const remainingRejectedRows = Math.max(rejected - visibleRejectedRows.length, 0)
+
+    lines.push('Some rows need attention:')
+
+    visibleRejectedRows.forEach((item) => {
       if (!isObject(item)) return
 
       const row =
@@ -67,9 +106,13 @@ function getCsvUploadMessage(data: unknown): string {
           ? 'Unknown row'
           : `Row ${String(item.row)}`
 
-      const reason = getString(item.reason) || 'No reason provided'
+      const reason = getString(item.reason) || 'Could not read this row'
       lines.push(`${row}: ${reason}`)
     })
+
+    if (remainingRejectedRows > 0) {
+      lines.push(`${remainingRejectedRows} more rows were rejected.`)
+    }
   }
 
   return lines.join('\n')
@@ -202,6 +245,7 @@ function App() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [token, setToken] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [businessMessage, setBusinessMessage] = useState('')
@@ -336,6 +380,7 @@ function App() {
       return
     }
 
+    setCsvMessage('')
     setActionLoading('uploadCsv', true)
 
     try {
@@ -468,8 +513,15 @@ function App() {
         <input
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          type="password"
+          type={showPassword ? 'text' : 'password'}
         />
+        <button
+          className="password-toggle"
+          type="button"
+          onClick={() => setShowPassword((current) => !current)}
+        >
+          {showPassword ? 'Hide' : 'Show'}
+        </button>
 
         <div className="actions">
           <button disabled={loadingStates.register} onClick={registerUser}>
