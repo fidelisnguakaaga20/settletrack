@@ -520,7 +520,7 @@ function App() {
           type="button"
           onClick={() => setShowPassword((current) => !current)}
         >
-          {showPassword ? 'Hide' : 'Show'}
+          {showPassword ? 'Hide Password' : 'Show Password'}
         </button>
 
         <div className="actions">
