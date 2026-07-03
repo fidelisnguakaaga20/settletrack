@@ -937,6 +937,33 @@ function App() {
           </button>
         </div>
 
+        {lastReconciliationDate !== 'Not run yet' && (
+          <div className="local-result reconciliation-run-summary">
+            <p><strong>Reconciliation completed successfully.</strong></p>
+            <p>
+              SettleTrack checked {totalTransactions} imported
+              {totalTransactions === 1 ? ' transaction.' : ' transactions.'}
+            </p>
+            <p>Last run: {lastReconciliationDate}</p>
+            {lastImports.length > 0 && lastImports[0].rejected > 0 && (
+              <p>
+                Last import issues: {lastImports[0].rejected} rejected
+                {lastImports[0].rejected === 1 ? ' row' : ' rows'} shown on the Upload Transactions page.
+              </p>
+            )}
+
+            {reconciliationStats.mismatchTotal === 0 &&
+              reconciliationStats.unmatched === 0 &&
+              reconciliationStats.amountMismatch === 0 &&
+              reconciliationStats.duplicateReference === 0 && (
+                <p>
+                  No reconciliation issues were found in the imported records.
+                  Import issues such as duplicate or rejected rows are shown on the Upload Transactions page.
+                </p>
+              )}
+          </div>
+        )}
+
         <div className="summary-grid four">
           <div className="summary-card">
             <span>Matched</span>
@@ -979,7 +1006,9 @@ function App() {
           </div>
 
           {issueItems.length === 0 ? (
-            <p className="muted">No issues found in the current reconciliation result.</p>
+            <p className="muted">
+              No reconciliation issues found in the imported records. Check Upload Transactions for rejected rows or duplicate import issues.
+            </p>
           ) : (
             <div className="small-table-wrap">
               <table>
