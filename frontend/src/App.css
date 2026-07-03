@@ -525,3 +525,47 @@ input[type="file"] {
     padding: 14px;
   }
 }
+
+.welcome-card {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  border-left: 6px solid #2563eb;
+}
+
+.getting-started-card {
+  background: #f0fdf4;
+  border-color: #86efac;
+  border-left: 6px solid #16a34a;
+}
+
+.value-card {
+  background: #fff7ed;
+  border-color: #fdba74;
+  border-left: 6px solid #ea580c;
+}
+
+.demo-flow {
+  background: #f5f3ff;
+  border-color: #c4b5fd;
+  border-left: 6px solid #7c3aed;
+}
+
+.use-case-card {
+  background: #fdf2f8;
+  border-color: #f9a8d4;
+  border-left: 6px solid #db2777;
+}
+
+.welcome-card h2,
+.getting-started-card h2,
+.value-card h2,
+.demo-flow h2,
+.use-case-card h2 {
+  color: #0f172a;
+}
+
+.clarity-card,
+.demo-flow,
+.use-case-card {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}

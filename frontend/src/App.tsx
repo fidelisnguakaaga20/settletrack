@@ -427,17 +427,17 @@ function App() {
       if (data.business_id) {
         setBusinessId(data.business_id)
         setBusinessMessage(
-          `${getString(data.message) || 'Business created successfully.'}\nActive Business ID: ${data.business_id}`
+          `${getString(data.message) || 'Business registered successfully.'}\nActive Business ID: ${data.business_id}`
         )
         setActivePage('dashboard')
         return
       }
 
       setBusinessMessage(
-        getString(data.detail) || getString(data.message) || 'Business creation failed.'
+        getString(data.detail) || getString(data.message) || 'Business registration failed.'
       )
     } catch {
-      setBusinessMessage('Business creation failed.')
+      setBusinessMessage('Business registration failed.')
     } finally {
       setActionLoading('createBusiness', false)
     }
@@ -445,7 +445,7 @@ function App() {
 
   async function uploadCsv() {
     if (!businessId) {
-      setCsvMessage('Please create a business first.')
+      setCsvMessage('Please register a business first.')
       return
     }
 
@@ -497,7 +497,7 @@ function App() {
 
   async function runReconciliation() {
     if (!businessId) {
-      setReconciliationMessage('Please create a business first.')
+      setReconciliationMessage('Please register a business first.')
       return
     }
 
@@ -524,7 +524,7 @@ function App() {
 
   async function viewDashboard() {
     if (!businessId) {
-      setDashboardMessage('Please create a business first.')
+      setDashboardMessage('Please register a business first.')
       return
     }
 
@@ -549,7 +549,7 @@ function App() {
 
   async function exportCsv() {
     if (!businessId) {
-      setExportMessage('Please create a business first.')
+      setExportMessage('Please register a business first.')
       return
     }
 
@@ -657,27 +657,27 @@ function App() {
         )}
 
         {!businessId && totalTransactions === 0 && lastReconciliationDate === 'Not run yet' && (
-          <div className="clarity-card">
+          <div className="clarity-card welcome-card">
             <h2>Welcome to SettleTrack.</h2>
             <p>
               Use SettleTrack to upload your payment records, run reconciliation,
               and find missing, duplicate, or mismatched payments.
             </p>
-            <p>Start by creating a business, then upload transactions.</p>
+            <p>Start by registering a business, then upload transactions.</p>
           </div>
         )}
 
-        <div className="clarity-card">
+        <div className="clarity-card getting-started-card">
           <h2>Getting started</h2>
           <div className="step-grid">
-            <div><strong>1. Create your business profile</strong><span>Add the business you want to reconcile.</span></div>
+            <div><strong>1. Register your business</strong><span>Add the business you want to reconcile.</span></div>
             <div><strong>2. Upload transaction records</strong><span>Import payment records from CSV, Excel, or bank statements.</span></div>
             <div><strong>3. Run reconciliation</strong><span>Find missing, duplicate, and mismatched payments.</span></div>
             <div><strong>4. Export your report</strong><span>Download a clean CSV for review or accounting.</span></div>
           </div>
         </div>
 
-        <div className="clarity-card">
+        <div className="clarity-card value-card">
           <h2>What SettleTrack does</h2>
           <p><strong>Find missing, duplicate, and mismatched payments</strong> before they affect your business reports.</p>
           <ul className="clarity-list">
@@ -692,7 +692,7 @@ function App() {
         <div className="demo-flow">
           <h2>Recommended demo flow</h2>
           <ol>
-            <li>Create a business</li>
+            <li>Register a business</li>
             <li>Upload the sample transaction file</li>
             <li>Run reconciliation</li>
             <li>Export CSV report</li>
@@ -749,9 +749,9 @@ function App() {
       <section className="page-section narrow-page">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">Business profile</p>
-            <h1>Business Setup</h1>
-            <p>Add the business details used for imports and reports.</p>
+            <p className="eyebrow">Business registration</p>
+            <h1>Register Business</h1>
+            <p>Register the business you want to reconcile.</p>
           </div>
         </div>
 
@@ -780,7 +780,7 @@ function App() {
         />
 
         <button disabled={loadingStates.createBusiness} onClick={createBusiness}>
-          {loadingStates.createBusiness ? 'Saving business...' : 'Create / Save Business'}
+          {loadingStates.createBusiness ? 'Saving business...' : 'Register Business'}
         </button>
 
         {businessMessage && (
@@ -809,7 +809,7 @@ function App() {
         <div className="form-card">
           <p>
             Active Business:{' '}
-            <strong>{businessId ? businessId : 'Create business first'}</strong>
+            <strong>{businessId ? businessId : 'Register business first'}</strong>
           </p>
 
           <label>Provider</label>
@@ -1096,7 +1096,7 @@ function App() {
 
   const navigationItems: { key: ActivePage; label: string }[] = [
     { key: 'dashboard', label: 'Dashboard' },
-    { key: 'business', label: 'Business Setup' },
+    { key: 'business', label: 'Register Business' },
     { key: 'upload', label: 'Upload Transactions' },
     { key: 'reconciliation', label: 'Reconciliation' },
     { key: 'reports', label: 'Reports / Export' },
