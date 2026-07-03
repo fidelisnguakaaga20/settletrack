@@ -167,7 +167,7 @@ function getReconciliationItems(message: unknown): unknown[] {
   const results = Array.isArray(message.results) ? message.results : []
   const mismatches = Array.isArray(message.mismatches) ? message.mismatches : []
 
-  return [...results, ...mismatches]
+  return mismatches.length > 0 ? mismatches : results
 }
 
 function countMatchingTypes(items: unknown[], expected: string[]): number {
@@ -182,6 +182,7 @@ function getReconciliationStats(message: unknown) {
     unmatched: countMatchingTypes(items, ['UNMATCHED']),
     amountMismatch: countMatchingTypes(items, ['AMOUNT_MISMATCH']),
     duplicateReference: countMatchingTypes(items, ['DUPLICATE', 'DUPLICATE_REFERENCE']),
+    failedPayment: countMatchingTypes(items, ['FAILED_PAYMENT', 'FAILED', 'FAIL']),
     mismatchTotal: isObject(message) && Array.isArray(message.mismatches)
       ? message.mismatches.length
       : countMatchingTypes(items, [
@@ -189,6 +190,9 @@ function getReconciliationStats(message: unknown) {
           'AMOUNT_MISMATCH',
           'DUPLICATE',
           'DUPLICATE_REFERENCE',
+          'FAILED_PAYMENT',
+          'FAILED',
+          'FAIL',
           'SETTLEMENT_PENDING',
         ]),
   }
@@ -955,7 +959,8 @@ function App() {
             {reconciliationStats.mismatchTotal === 0 &&
               reconciliationStats.unmatched === 0 &&
               reconciliationStats.amountMismatch === 0 &&
-              reconciliationStats.duplicateReference === 0 && (
+              reconciliationStats.duplicateReference === 0 &&
+              reconciliationStats.failedPayment === 0 && (
                 <p>
                   No reconciliation issues were found in the imported records.
                   Import issues such as duplicate or rejected rows are shown on the Upload Transactions page.
@@ -981,6 +986,10 @@ function App() {
             <span>Duplicate reference</span>
             <strong>{reconciliationStats.duplicateReference}</strong>
           </div>
+          <div className="summary-card">
+            <span>Failed payment</span>
+            <strong>{reconciliationStats.failedPayment}</strong>
+          </div>
         </div>
 
         {typeof reconciliationMessage === 'string' && (
@@ -1003,6 +1012,7 @@ function App() {
             <p><strong>Unmatched means</strong> SettleTrack could not find a matching record.</p>
             <p><strong>Amount mismatch means</strong> the reference exists but the amount is different.</p>
             <p><strong>Duplicate reference means</strong> the same payment reference appears more than once.</p>
+            <p><strong>Failed payment means</strong> the transaction status shows the payment did not succeed.</p>
           </div>
 
           {issueItems.length === 0 ? (

@@ -28,7 +28,7 @@ def run_reconciliation(
 
     csv_transactions = db.query(Transaction).filter(
         Transaction.business_id == business_id,
-        Transaction.source == "CSV"
+        Transaction.source.in_(["CSV", "Smart Import"])
     ).all()
 
     provider_transactions = db.query(Transaction).filter(
