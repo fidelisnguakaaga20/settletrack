@@ -466,3 +466,62 @@ input[type="file"] {
   display: block;
   margin-bottom: 16px;
 }
+
+.clarity-card,
+.demo-flow,
+.use-case-card,
+.explanation-box {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #f8fafc;
+}
+
+.clarity-card h2,
+.demo-flow h2,
+.use-case-card h2 {
+  margin-top: 0;
+}
+
+.step-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.step-grid div {
+  padding: 14px;
+  border-radius: 14px;
+  background: white;
+  border: 1px solid #e2e8f0;
+}
+
+.step-grid span {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.clarity-list {
+  margin-bottom: 0;
+  padding-left: 20px;
+}
+
+.explanation-box p {
+  margin: 6px 0;
+}
+
+@media (max-width: 900px) {
+  .step-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .clarity-card,
+  .demo-flow,
+  .use-case-card,
+  .explanation-box {
+    padding: 14px;
+  }
+}

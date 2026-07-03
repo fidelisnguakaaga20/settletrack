@@ -643,7 +643,7 @@ function App() {
           <div>
             <p className="eyebrow">Overview</p>
             <h1>Dashboard</h1>
-            <p>Track imports, reconciliation health, and next actions.</p>
+            <p>Find missing, duplicate, and mismatched payments without manual Excel checking.</p>
           </div>
           <button disabled={loadingStates.viewDashboard} onClick={viewDashboard}>
             {loadingStates.viewDashboard ? 'Refreshing...' : 'Refresh dashboard'}
@@ -655,6 +655,56 @@ function App() {
             {renderTextLines(businessMessage)}
           </div>
         )}
+
+        {!businessId && totalTransactions === 0 && lastReconciliationDate === 'Not run yet' && (
+          <div className="clarity-card">
+            <h2>Welcome to SettleTrack.</h2>
+            <p>
+              Use SettleTrack to upload your payment records, run reconciliation,
+              and find missing, duplicate, or mismatched payments.
+            </p>
+            <p>Start by creating a business, then upload transactions.</p>
+          </div>
+        )}
+
+        <div className="clarity-card">
+          <h2>Getting started</h2>
+          <div className="step-grid">
+            <div><strong>1. Create your business profile</strong><span>Add the business you want to reconcile.</span></div>
+            <div><strong>2. Upload transaction records</strong><span>Import payment records from CSV, Excel, or bank statements.</span></div>
+            <div><strong>3. Run reconciliation</strong><span>Find missing, duplicate, and mismatched payments.</span></div>
+            <div><strong>4. Export your report</strong><span>Download a clean CSV for review or accounting.</span></div>
+          </div>
+        </div>
+
+        <div className="clarity-card">
+          <h2>What SettleTrack does</h2>
+          <p><strong>Find missing, duplicate, and mismatched payments</strong> before they affect your business reports.</p>
+          <ul className="clarity-list">
+            <li>Missing payments</li>
+            <li>Duplicate transactions</li>
+            <li>Amount mismatches</li>
+            <li>Unmatched records</li>
+            <li>Settlement/reporting issues</li>
+          </ul>
+        </div>
+
+        <div className="demo-flow">
+          <h2>Recommended demo flow</h2>
+          <ol>
+            <li>Create a business</li>
+            <li>Upload the sample transaction file</li>
+            <li>Run reconciliation</li>
+            <li>Export CSV report</li>
+          </ol>
+        </div>
+
+        <div className="use-case-card">
+          <h2>Example use case</h2>
+          <p>
+            A school receives many fee payments from parents. At the end of the day, the school uploads payment records into SettleTrack. SettleTrack helps identify duplicate payments, missing records, and amount mismatches before reports are sent to accounting.
+          </p>
+        </div>
 
         <div className="summary-grid">
           <div className="summary-card">
@@ -749,7 +799,10 @@ function App() {
           <div>
             <p className="eyebrow">Smart import</p>
             <h1>Upload Transactions</h1>
-            <p>Upload CSV or Excel files and import clean transaction records.</p>
+            <p>
+              Upload your transaction record from a provider, bank statement, or spreadsheet.
+              SettleTrack will import the records and prepare them for reconciliation.
+            </p>
           </div>
         </div>
 
@@ -868,7 +921,10 @@ function App() {
           <div>
             <p className="eyebrow">Match and resolve</p>
             <h1>Reconciliation</h1>
-            <p>Compare imported transactions and highlight issues.</p>
+            <p>
+              Run reconciliation to compare your payment records and find missing,
+              duplicate, and mismatched payments.
+            </p>
           </div>
 
           <button
@@ -915,8 +971,15 @@ function App() {
             </button>
           </div>
 
+          <div className="explanation-box">
+            <p><strong>Matched means</strong> the payment record looks correct.</p>
+            <p><strong>Unmatched means</strong> SettleTrack could not find a matching record.</p>
+            <p><strong>Amount mismatch means</strong> the reference exists but the amount is different.</p>
+            <p><strong>Duplicate reference means</strong> the same payment reference appears more than once.</p>
+          </div>
+
           {issueItems.length === 0 ? (
-            <p className="muted">No mismatch details to show yet.</p>
+            <p className="muted">No issues found in the current reconciliation result.</p>
           ) : (
             <div className="small-table-wrap">
               <table>
@@ -953,7 +1016,7 @@ function App() {
           <div>
             <p className="eyebrow">Reports</p>
             <h1>Reports / Export</h1>
-            <p>Download transaction reports for review and sharing.</p>
+            <p>Export a clean CSV report for review, audit, or accounting.</p>
           </div>
         </div>
 
