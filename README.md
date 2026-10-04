@@ -85,5 +85,10 @@ Note: `/paystack/sync` is currently a placeholder and doesn't pull real Paystack
 Hosted on Render, auto-deploying from the `feature/settletrack-mvp` branch:
 - Frontend (static site) → `settletrack-frontend-1`
 - Backend (web service) → `settletrack`
+- Database (PostgreSQL) → `settletrack-db`
 
-Both are on Render's free tier, which spins down after inactivity — the first request after idle can take 30–90 seconds. Check the **Logs** tab on the Render dashboard if a deploy shows as failed rather than just slow.
+Both web services are on Render's free tier, which spins down after inactivity — the first request after idle can take 30–90 seconds. Check the **Logs** tab on the Render dashboard if a deploy shows as failed rather than just slow.
+
+**⚠️ `settletrack-db` is on Render's free Postgres tier and expires 2026-11-04.** After that date Render deletes it (not just suspends it) unless it's upgraded to a paid plan first. When it expires, the backend will fail at startup with `could not translate host name ... Name or service not known` — this already happened once (the original database silently expired with no warning reaching anyone, breaking login until diagnosed from deploy logs). Before the expiry date: either upgrade the database to a paid plan on Render, or recreate it and update `DATABASE_URL` on the `settletrack` web service with the new Internal Database URL.
+
+**Required environment variables on Render** (the `settletrack` web service does *not* read `backend/.env` — that file is gitignored and never deployed; everything below must be set directly in Render's dashboard under that service's **Environment** tab): `APP_NAME`, `APP_ENV=production`, `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `DATABASE_URL`. Missing any of the first four crashes the app at startup with a pydantic `Settings` validation error before it ever serves a request — this also already happened once.
