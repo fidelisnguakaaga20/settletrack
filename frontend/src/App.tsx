@@ -230,6 +230,48 @@ function getDashboardTotalTransactions(
   return lastImports.reduce((total, item) => total + item.imported, 0)
 }
 
+function Spinner() {
+  return (
+    <svg className="spinner" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <circle className="spinner-track" cx="12" cy="12" r="9" fill="none" strokeWidth="3" />
+      <circle className="spinner-head" cx="12" cy="12" r="9" fill="none" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function LoadingLabel({ text }: { text: string }) {
+  return (
+    <span className="loading-label">
+      <Spinner />
+      Please wait{text ? ` — ${text}` : ''}…
+    </span>
+  )
+}
+
+type ToastItem = { id: number; message: string; type: 'success' | 'error' }
+
+function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: number) => void }) {
+  if (toasts.length === 0) return null
+
+  return (
+    <div className="toast-stack" role="status" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.type}`}>
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            className="toast-dismiss"
+            onClick={() => onDismiss(toast.id)}
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function PasswordEyeToggle({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
   return (
     <button
@@ -341,6 +383,19 @@ function App() {
   const [dashboardMessage, setDashboardMessage] = useState<unknown>(null)
   const [mismatchListLimit, setMismatchListLimit] = useState(10)
   const [reconciliationIsStale, setReconciliationIsStale] = useState(false)
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+
+  const showToast = (message: string, type: ToastItem['type'] = 'success') => {
+    const id = Date.now() + Math.random()
+    setToasts((current) => [...current, { id, message, type }])
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id))
+    }, 4500)
+  }
+
+  const dismissToast = (id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id))
+  }
 
   const [loadingStates, setLoadingStates] = useState({
     register: false,
@@ -477,14 +532,18 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        setAuthMessage(getString(data.detail) || getString(data.message) || 'Registration failed.')
+        const message = getString(data.detail) || getString(data.message) || 'Registration failed.'
+        setAuthMessage(message)
+        showToast(message, 'error')
         return
       }
 
       setAuthMessage('Account created. Logging you in...')
+      showToast('Account created!')
       await loginUser()
     } catch {
       setAuthMessage('Registration failed.')
+      showToast('Registration failed. Please try again.', 'error')
     } finally {
       setActionLoading('register', false)
     }
@@ -508,21 +567,26 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        setAuthMessage(getString(data.detail) || getString(data.message) || 'Login failed.')
+        const message = getString(data.detail) || getString(data.message) || 'Login failed.'
+        setAuthMessage(message)
+        showToast(message, 'error')
         return
       }
 
       if (data.access_token) {
         setToken(data.access_token)
         setAuthMessage('Logged in successfully.')
+        showToast('Logged in successfully!')
         resetWorkspaceState()
         setActivePage('dashboard')
         return
       }
 
       setAuthMessage('Login failed.')
+      showToast('Login failed.', 'error')
     } catch {
       setAuthMessage('Login failed.')
+      showToast('Login failed. Please try again.', 'error')
     } finally {
       setActionLoading('login', false)
     }
@@ -541,21 +605,26 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        setAuthMessage(getString(data.detail) || 'Google sign-in failed.')
+        const message = getString(data.detail) || 'Google sign-in failed.'
+        setAuthMessage(message)
+        showToast(message, 'error')
         return
       }
 
       if (data.access_token) {
         setToken(data.access_token)
         setAuthMessage('Logged in with Google.')
+        showToast('Logged in with Google!')
         resetWorkspaceState()
         setActivePage('dashboard')
         return
       }
 
       setAuthMessage('Google sign-in failed.')
+      showToast('Google sign-in failed.', 'error')
     } catch {
       setAuthMessage('Google sign-in failed.')
+      showToast('Google sign-in failed. Please try again.', 'error')
     } finally {
       setActionLoading('googleLogin', false)
     }
@@ -585,12 +654,15 @@ function App() {
           `${getString(data.message)}\n${getString(data.dev_note)}\nDev reset token: ${devToken}`
         )
         setAuthView('reset')
+        showToast('Reset link created.')
         return
       }
 
       setAuthMessage(getString(data.message) || 'If an account exists for that email, a reset link has been sent.')
+      showToast('If an account exists for that email, a reset link has been sent.')
     } catch {
       setAuthMessage('Could not request a password reset. Please try again.')
+      showToast('Could not request a password reset. Please try again.', 'error')
     } finally {
       setActionLoading('forgotPassword', false)
     }
@@ -614,11 +686,14 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        setAuthMessage(getString(data.detail) || 'Could not reset password.')
+        const message = getString(data.detail) || 'Could not reset password.'
+        setAuthMessage(message)
+        showToast(message, 'error')
         return
       }
 
       setAuthMessage(getString(data.message) || 'Password has been reset. You can now log in.')
+      showToast('Password reset successfully!')
       setAuthView('credentials')
       setPassword('')
       setNewPassword('')
@@ -626,6 +701,7 @@ function App() {
       setForgotEmail('')
     } catch {
       setAuthMessage('Could not reset password. Please try again.')
+      showToast('Could not reset password. Please try again.', 'error')
     } finally {
       setActionLoading('resetPassword', false)
     }
@@ -692,15 +768,17 @@ function App() {
         setBusinessMessage(
           `${getString(data.message) || 'Business registered successfully.'}\nActive Business ID: ${data.business_id}`
         )
+        showToast('Business registered successfully!')
         setActivePage('dashboard')
         return
       }
 
-      setBusinessMessage(
-        getString(data.detail) || getString(data.message) || 'Business registration failed.'
-      )
+      const message = getString(data.detail) || getString(data.message) || 'Business registration failed.'
+      setBusinessMessage(message)
+      showToast(message, 'error')
     } catch {
       setBusinessMessage('Business registration failed.')
+      showToast('Business registration failed. Please try again.', 'error')
     } finally {
       setActionLoading('createBusiness', false)
     }
@@ -742,6 +820,11 @@ function App() {
       if (result.imported > 0 && lastReconciliationDate !== 'Not run yet') {
         setReconciliationIsStale(true)
       }
+      if (result.imported > 0) {
+        showToast(`${result.imported} transaction${result.imported === 1 ? '' : 's'} imported successfully.`)
+      } else {
+        showToast('No transactions were imported. Check the file and try again.', 'error')
+      }
       setLastImports((current) =>
         [
           {
@@ -756,6 +839,7 @@ function App() {
       )
     } catch {
       setCsvMessage('Smart import failed. Please try again.')
+      showToast('Smart import failed. Please try again.', 'error')
     } finally {
       setActionLoading('uploadCsv', false)
     }
@@ -783,8 +867,10 @@ function App() {
       setLastReconciliationDate(new Date().toLocaleString())
       setMismatchListLimit(10)
       setReconciliationIsStale(false)
+      showToast('Reconciliation complete.')
     } catch {
       setReconciliationMessage('Reconciliation failed. Please try again.')
+      showToast('Reconciliation failed. Please try again.', 'error')
     } finally {
       setActionLoading('runReconciliation', false)
     }
@@ -833,6 +919,7 @@ function App() {
 
       if (!response.ok) {
         setExportMessage('CSV export failed. Please try again.')
+        showToast('CSV export failed. Please try again.', 'error')
         return
       }
 
@@ -846,8 +933,10 @@ function App() {
 
       window.URL.revokeObjectURL(url)
       setExportMessage('CSV exported successfully.')
+      showToast('CSV exported successfully.')
     } catch {
       setExportMessage('CSV export failed. Please try again.')
+      showToast('CSV export failed. Please try again.', 'error')
     } finally {
       setActionLoading('exportCsv', false)
     }
@@ -871,6 +960,7 @@ function App() {
 
       if (!response.ok) {
         setExportMessage('Mismatch export failed. Please try again.')
+        showToast('Mismatch export failed. Please try again.', 'error')
         return
       }
 
@@ -884,8 +974,10 @@ function App() {
 
       window.URL.revokeObjectURL(url)
       setExportMessage('Mismatch report exported successfully.')
+      showToast('Mismatch report exported successfully.')
     } catch {
       setExportMessage('Mismatch export failed. Please try again.')
+      showToast('Mismatch export failed. Please try again.', 'error')
     } finally {
       setActionLoading('exportMismatches', false)
     }
@@ -896,7 +988,9 @@ function App() {
 
   if (!token) {
     return (
-      <main className="auth-page">
+      <>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <main className="auth-page">
         <section className="auth-card">
           <div className="brand-mark">ST</div>
           <h1>SettleTrack</h1>
@@ -940,10 +1034,10 @@ function App() {
 
               <div className="actions">
                 <button disabled={loadingStates.register} onClick={registerUser}>
-                  {loadingStates.register ? 'Creating account...' : 'Create Account'}
+                  {loadingStates.register ? <LoadingLabel text="creating your account" /> : 'Create Account'}
                 </button>
                 <button disabled={loadingStates.login} onClick={loginUser}>
-                  {loadingStates.login ? 'Logging in...' : 'Login'}
+                  {loadingStates.login ? <LoadingLabel text="logging you in" /> : 'Login'}
                 </button>
               </div>
 
@@ -974,7 +1068,7 @@ function App() {
 
               <div className="actions">
                 <button disabled={loadingStates.forgotPassword} onClick={forgotPassword}>
-                  {loadingStates.forgotPassword ? 'Sending...' : 'Send Reset Link'}
+                  {loadingStates.forgotPassword ? <LoadingLabel text="sending reset link" /> : 'Send Reset Link'}
                 </button>
                 <button
                   className="secondary-button"
@@ -1019,7 +1113,7 @@ function App() {
 
               <div className="actions">
                 <button disabled={loadingStates.resetPassword} onClick={resetPassword}>
-                  {loadingStates.resetPassword ? 'Resetting...' : 'Reset Password'}
+                  {loadingStates.resetPassword ? <LoadingLabel text="resetting password" /> : 'Reset Password'}
                 </button>
                 <button
                   className="secondary-button"
@@ -1037,7 +1131,8 @@ function App() {
             </div>
           )}
         </section>
-      </main>
+        </main>
+      </>
     )
   }
 
@@ -1051,7 +1146,7 @@ function App() {
             <p>Find missing, duplicate, and mismatched payments without manual Excel checking.</p>
           </div>
           <button disabled={loadingStates.viewDashboard} onClick={viewDashboard}>
-            {loadingStates.viewDashboard ? 'Refreshing...' : 'Refresh dashboard'}
+            {loadingStates.viewDashboard ? <LoadingLabel text="refreshing" /> : 'Refresh dashboard'}
           </button>
         </div>
 
@@ -1188,7 +1283,7 @@ function App() {
         />
 
         <button disabled={loadingStates.createBusiness} onClick={createBusiness}>
-          {loadingStates.createBusiness ? 'Saving business...' : 'Register Business'}
+          {loadingStates.createBusiness ? <LoadingLabel text="saving business" /> : 'Register Business'}
         </button>
 
         {businessMessage && (
@@ -1246,7 +1341,7 @@ function App() {
             disabled={!businessId || loadingStates.uploadCsv}
             onClick={uploadCsv}
           >
-            {loadingStates.uploadCsv ? 'Importing transactions...' : 'Import Transactions'}
+            {loadingStates.uploadCsv ? <LoadingLabel text="importing transactions" /> : 'Import Transactions'}
           </button>
 
           {csvMessage && (
@@ -1345,7 +1440,7 @@ function App() {
             onClick={runReconciliation}
           >
             {loadingStates.runReconciliation
-              ? 'Running reconciliation...'
+              ? <LoadingLabel text="running reconciliation" />
               : 'Run Reconciliation'}
           </button>
         </div>
@@ -1420,14 +1515,14 @@ function App() {
                 disabled={!businessId || loadingStates.exportMismatches}
                 onClick={exportMismatches}
               >
-                {loadingStates.exportMismatches ? 'Exporting...' : 'Export Mismatches'}
+                {loadingStates.exportMismatches ? <LoadingLabel text="exporting" /> : 'Export Mismatches'}
               </button>
               <button
                 className="secondary-button"
                 disabled={!businessId || loadingStates.exportCsv}
                 onClick={exportCsv}
               >
-                {loadingStates.exportCsv ? 'Downloading...' : 'Download All CSV'}
+                {loadingStates.exportCsv ? <LoadingLabel text="downloading" /> : 'Download All CSV'}
               </button>
             </div>
           </div>
@@ -1501,7 +1596,7 @@ function App() {
               <p>Download the working transaction export.</p>
             </div>
             <button disabled={!businessId || loadingStates.exportCsv} onClick={exportCsv}>
-              {loadingStates.exportCsv ? 'Exporting...' : 'Export CSV'}
+              {loadingStates.exportCsv ? <LoadingLabel text="exporting" /> : 'Export CSV'}
             </button>
           </div>
 
@@ -1511,7 +1606,7 @@ function App() {
               <p>Download only the unmatched, duplicate, and mismatched records.</p>
             </div>
             <button disabled={!businessId || loadingStates.exportMismatches} onClick={exportMismatches}>
-              {loadingStates.exportMismatches ? 'Exporting...' : 'Export Mismatches'}
+              {loadingStates.exportMismatches ? <LoadingLabel text="exporting" /> : 'Export Mismatches'}
             </button>
           </div>
 
@@ -1580,7 +1675,9 @@ function App() {
   ]
 
   return (
-    <main className="dashboard-shell">
+    <>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <main className="dashboard-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-mark">ST</div>
@@ -1620,7 +1717,8 @@ function App() {
 
         {renderActivePage()}
       </section>
-    </main>
+      </main>
+    </>
   )
 }
 
