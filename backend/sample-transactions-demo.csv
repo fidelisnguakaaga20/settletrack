@@ -1,0 +1,11 @@
+transaction_reference,amount,status,payment_date,customer_identifier,provider
+TXN-1001,15000,success,2026-09-01,amaka@example.com,Paystack
+TXN-1002,8500,success,2026-09-01,chidi@example.com,Paystack
+TXN-1003,22000,success,2026-09-02,fatima@example.com,Paystack
+TXN-1004,5000,failed,2026-09-02,tunde@example.com,Paystack
+TXN-1005,12750,success,2026-09-03,ngozi@example.com,Paystack
+TXN-1005,12750,success,2026-09-03,ngozi@example.com,Paystack
+TXN-1007,30000,success,2026-09-03,emeka@example.com,Paystack
+TXN-1008,9800,failed,2026-09-04,bisi@example.com,Paystack
+TXN-1009,4500,success,2026-09-04,segun@example.com,Paystack
+TXN-1010,17200,success,2026-09-05,halima@example.com,Paystack

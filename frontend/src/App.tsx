@@ -1,7 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string
+            callback: (response: { credential: string }) => void
+          }) => void
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void
+        }
+      }
+    }
+  }
+}
+
 const API_URL = import.meta.env.VITE_API_URL
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
 type ApiObject = Record<string, unknown>
 type ActivePage =
@@ -213,6 +230,30 @@ function getDashboardTotalTransactions(
   return lastImports.reduce((total, item) => total + item.imported, 0)
 }
 
+function PasswordEyeToggle({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
+  return (
+    <button
+      className="password-eye-toggle"
+      type="button"
+      onClick={onToggle}
+      aria-label={visible ? 'Hide password' : 'Show password'}
+      aria-pressed={visible}
+    >
+      {visible ? (
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
 function renderTextLines(message: string) {
   return message.split('\n').map((line, index) => <p key={`${line}-${index}`}>{line}</p>)
 }
@@ -259,14 +300,33 @@ function renderDashboardMessage(message: unknown) {
   )
 }
 
+function readStoredSession() {
+  try {
+    const raw = window.localStorage.getItem('settletrack_session')
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return isObject(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function App() {
+  const storedSession = readStoredSession()
+
   const [activePage, setActivePage] = useState<ActivePage>('dashboard')
-  const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
+  const [fullName, setFullName] = useState(getString(storedSession?.fullName))
+  const [email, setEmail] = useState(getString(storedSession?.email))
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [token, setToken] = useState('')
+  const [token, setToken] = useState(getString(storedSession?.token))
   const [authMessage, setAuthMessage] = useState('')
+  const [authView, setAuthView] = useState<'credentials' | 'forgot' | 'reset'>('credentials')
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [resetToken, setResetToken] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const googleButtonContainerRef = useRef<HTMLDivElement | null>(null)
   const [businessMessage, setBusinessMessage] = useState('')
   const [csvMessage, setCsvMessage] = useState('')
   const [exportMessage, setExportMessage] = useState('')
@@ -279,6 +339,8 @@ function App() {
 
   const [reconciliationMessage, setReconciliationMessage] = useState<unknown>(null)
   const [dashboardMessage, setDashboardMessage] = useState<unknown>(null)
+  const [mismatchListLimit, setMismatchListLimit] = useState(10)
+  const [reconciliationIsStale, setReconciliationIsStale] = useState(false)
 
   const [loadingStates, setLoadingStates] = useState({
     register: false,
@@ -288,17 +350,104 @@ function App() {
     runReconciliation: false,
     viewDashboard: false,
     exportCsv: false,
+    exportMismatches: false,
+    forgotPassword: false,
+    resetPassword: false,
+    googleLogin: false,
   })
 
-  const [businessName, setBusinessName] = useState('')
-  const [category, setCategory] = useState('')
-  const [location, setLocation] = useState('')
-  const [contactEmail, setContactEmail] = useState('')
-  const [contactPhone, setContactPhone] = useState('')
-  const [businessId, setBusinessId] = useState<number | null>(null)
+  const [businessName, setBusinessName] = useState(getString(storedSession?.businessName))
+  const [category, setCategory] = useState(getString(storedSession?.category))
+  const [location, setLocation] = useState(getString(storedSession?.location))
+  const [contactEmail, setContactEmail] = useState(getString(storedSession?.contactEmail))
+  const [contactPhone, setContactPhone] = useState(getString(storedSession?.contactPhone))
+  const [businessId, setBusinessId] = useState<number | null>(
+    typeof storedSession?.businessId === 'number' ? storedSession.businessId : null
+  )
 
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [selectedProvider, setSelectedProvider] = useState('Paystack')
+
+  useEffect(() => {
+    try {
+      if (!token) {
+        window.localStorage.removeItem('settletrack_session')
+        return
+      }
+
+      window.localStorage.setItem(
+        'settletrack_session',
+        JSON.stringify({
+          token,
+          fullName,
+          email,
+          businessId,
+          businessName,
+          category,
+          location,
+          contactEmail,
+          contactPhone,
+        })
+      )
+    } catch {
+      // Browser storage unavailable (private mode, blocked site data) - session simply won't persist.
+    }
+  }, [
+    token,
+    fullName,
+    email,
+    businessId,
+    businessName,
+    category,
+    location,
+    contactEmail,
+    contactPhone,
+  ])
+
+  const handleGoogleCredentialRef = useRef(handleGoogleCredential)
+
+  useEffect(() => {
+    handleGoogleCredentialRef.current = handleGoogleCredential
+  })
+
+  useEffect(() => {
+    if (token || !GOOGLE_CLIENT_ID) return
+
+    let cancelled = false
+    let attempts = 0
+
+    const tryInitGoogleButton = () => {
+      if (cancelled) return
+
+      if (!window.google || !googleButtonContainerRef.current) {
+        attempts += 1
+        if (attempts < 40) {
+          window.setTimeout(tryInitGoogleButton, 250)
+        }
+        return
+      }
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          handleGoogleCredentialRef.current(response.credential)
+        },
+      })
+
+      window.google.accounts.id.renderButton(googleButtonContainerRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 320,
+        text: 'continue_with',
+      })
+    }
+
+    tryInitGoogleButton()
+
+    return () => {
+      cancelled = true
+    }
+  }, [token, authView])
 
   const setActionLoading = (
     action: keyof typeof loadingStates,
@@ -332,7 +481,8 @@ function App() {
         return
       }
 
-      setAuthMessage(getString(data.message) || 'User registered successfully.')
+      setAuthMessage('Account created. Logging you in...')
+      await loginUser()
     } catch {
       setAuthMessage('Registration failed.')
     } finally {
@@ -378,6 +528,109 @@ function App() {
     }
   }
 
+  async function handleGoogleCredential(idToken: string) {
+    setActionLoading('googleLogin', true)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setAuthMessage(getString(data.detail) || 'Google sign-in failed.')
+        return
+      }
+
+      if (data.access_token) {
+        setToken(data.access_token)
+        setAuthMessage('Logged in with Google.')
+        resetWorkspaceState()
+        setActivePage('dashboard')
+        return
+      }
+
+      setAuthMessage('Google sign-in failed.')
+    } catch {
+      setAuthMessage('Google sign-in failed.')
+    } finally {
+      setActionLoading('googleLogin', false)
+    }
+  }
+
+  async function forgotPassword() {
+    if (!forgotEmail.trim()) {
+      setAuthMessage('Please enter your email.')
+      return
+    }
+
+    setActionLoading('forgotPassword', true)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      })
+
+      const data = await response.json()
+      const devToken = getString(data.dev_reset_token)
+
+      if (devToken) {
+        setResetToken(devToken)
+        setAuthMessage(
+          `${getString(data.message)}\n${getString(data.dev_note)}\nDev reset token: ${devToken}`
+        )
+        setAuthView('reset')
+        return
+      }
+
+      setAuthMessage(getString(data.message) || 'If an account exists for that email, a reset link has been sent.')
+    } catch {
+      setAuthMessage('Could not request a password reset. Please try again.')
+    } finally {
+      setActionLoading('forgotPassword', false)
+    }
+  }
+
+  async function resetPassword() {
+    if (!resetToken.trim() || !newPassword.trim()) {
+      setAuthMessage('Please enter the reset token and a new password.')
+      return
+    }
+
+    setActionLoading('resetPassword', true)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, new_password: newPassword }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setAuthMessage(getString(data.detail) || 'Could not reset password.')
+        return
+      }
+
+      setAuthMessage(getString(data.message) || 'Password has been reset. You can now log in.')
+      setAuthView('credentials')
+      setPassword('')
+      setNewPassword('')
+      setResetToken('')
+      setForgotEmail('')
+    } catch {
+      setAuthMessage('Could not reset password. Please try again.')
+    } finally {
+      setActionLoading('resetPassword', false)
+    }
+  }
+
   function resetWorkspaceState() {
     setBusinessMessage('')
     setCsvMessage('')
@@ -396,6 +649,8 @@ function App() {
     setReconciliationMessage(null)
     setDashboardMessage(null)
     setLastReconciliationDate('Not run yet')
+    setMismatchListLimit(10)
+    setReconciliationIsStale(false)
   }
 
   function logoutUser() {
@@ -403,6 +658,10 @@ function App() {
     setPassword('')
     setShowPassword(false)
     setAuthMessage('')
+    setAuthView('credentials')
+    setForgotEmail('')
+    setResetToken('')
+    setNewPassword('')
     resetWorkspaceState()
     setActivePage('dashboard')
   }
@@ -480,6 +739,9 @@ function App() {
 
       setCsvMessage(result.message)
       setDetectedColumns(result.detectedColumns)
+      if (result.imported > 0 && lastReconciliationDate !== 'Not run yet') {
+        setReconciliationIsStale(true)
+      }
       setLastImports((current) =>
         [
           {
@@ -519,6 +781,8 @@ function App() {
       const data = await response.json()
       setReconciliationMessage(data)
       setLastReconciliationDate(new Date().toLocaleString())
+      setMismatchListLimit(10)
+      setReconciliationIsStale(false)
     } catch {
       setReconciliationMessage('Reconciliation failed. Please try again.')
     } finally {
@@ -589,6 +853,44 @@ function App() {
     }
   }
 
+  async function exportMismatches() {
+    if (!businessId) {
+      setExportMessage('Please register a business first.')
+      return
+    }
+
+    setActionLoading('exportMismatches', true)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/export/mismatches?business_id=${businessId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+
+      if (!response.ok) {
+        setExportMessage('Mismatch export failed. Please try again.')
+        return
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'settletrack-mismatches.csv'
+      link.click()
+
+      window.URL.revokeObjectURL(url)
+      setExportMessage('Mismatch report exported successfully.')
+    } catch {
+      setExportMessage('Mismatch export failed. Please try again.')
+    } finally {
+      setActionLoading('exportMismatches', false)
+    }
+  }
+
   const reconciliationStats = getReconciliationStats(reconciliationMessage)
   const totalTransactions = getDashboardTotalTransactions(dashboardMessage, lastImports)
 
@@ -602,39 +904,138 @@ function App() {
             Payment reconciliation and settlement reporting for Nigerian SMEs.
           </p>
 
-          <div className="auth-form">
-            <label>Full Name</label>
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          {authView === 'credentials' && (
+            <div className="auth-form">
+              <label htmlFor="full-name">Full Name</label>
+              <input id="full-name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
 
-            <label>Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} />
+              <label htmlFor="email">Email</label>
+              <input id="email" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-            <label>Password</label>
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type={showPassword ? 'text' : 'password'}
-            />
+              <label htmlFor="password">Password</label>
+              <div className="password-field">
+                <input
+                  id="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type={showPassword ? 'text' : 'password'}
+                />
+                <PasswordEyeToggle
+                  visible={showPassword}
+                  onToggle={() => setShowPassword((current) => !current)}
+                />
+              </div>
 
-            <button
-              className="secondary-button password-toggle"
-              type="button"
-              onClick={() => setShowPassword((current) => !current)}
-            >
-              {showPassword ? 'Hide Password' : 'Show Password'}
-            </button>
-
-            <div className="actions">
-              <button disabled={loadingStates.register} onClick={registerUser}>
-                {loadingStates.register ? 'Registering...' : 'Register'}
+              <button
+                className="link-button forgot-password-link"
+                type="button"
+                onClick={() => {
+                  setForgotEmail(email)
+                  setAuthMessage('')
+                  setAuthView('forgot')
+                }}
+              >
+                Forgot password?
               </button>
-              <button disabled={loadingStates.login} onClick={loginUser}>
-                {loadingStates.login ? 'Logging in...' : 'Login'}
-              </button>
+
+              <div className="actions">
+                <button disabled={loadingStates.register} onClick={registerUser}>
+                  {loadingStates.register ? 'Creating account...' : 'Create Account'}
+                </button>
+                <button disabled={loadingStates.login} onClick={loginUser}>
+                  {loadingStates.login ? 'Logging in...' : 'Login'}
+                </button>
+              </div>
+
+              <div className="auth-divider"><span>or</span></div>
+
+              {GOOGLE_CLIENT_ID ? (
+                <div className="google-button-wrap" ref={googleButtonContainerRef} />
+              ) : (
+                <button className="secondary-button google-button-stub" type="button" disabled>
+                  Continue with Google (not configured)
+                </button>
+              )}
+
+              {authMessage && <div className="success local-feedback">{renderTextLines(authMessage)}</div>}
             </div>
+          )}
 
-            {authMessage && <p className="success local-feedback">{authMessage}</p>}
-          </div>
+          {authView === 'forgot' && (
+            <div className="auth-form">
+              <p className="muted">Enter your account email and we'll create a password reset link.</p>
+
+              <label htmlFor="forgot-email">Email</label>
+              <input
+                id="forgot-email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+              />
+
+              <div className="actions">
+                <button disabled={loadingStates.forgotPassword} onClick={forgotPassword}>
+                  {loadingStates.forgotPassword ? 'Sending...' : 'Send Reset Link'}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setAuthMessage('')
+                    setAuthView('credentials')
+                  }}
+                >
+                  Back to login
+                </button>
+              </div>
+
+              {authMessage && <div className="success local-feedback">{renderTextLines(authMessage)}</div>}
+            </div>
+          )}
+
+          {authView === 'reset' && (
+            <div className="auth-form">
+              <p className="muted">Paste your reset token and choose a new password.</p>
+
+              <label htmlFor="reset-token">Reset Token</label>
+              <input
+                id="reset-token"
+                value={resetToken}
+                onChange={(e) => setResetToken(e.target.value)}
+              />
+
+              <label htmlFor="new-password">New Password</label>
+              <div className="password-field">
+                <input
+                  id="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  type={showNewPassword ? 'text' : 'password'}
+                />
+                <PasswordEyeToggle
+                  visible={showNewPassword}
+                  onToggle={() => setShowNewPassword((current) => !current)}
+                />
+              </div>
+
+              <div className="actions">
+                <button disabled={loadingStates.resetPassword} onClick={resetPassword}>
+                  {loadingStates.resetPassword ? 'Resetting...' : 'Reset Password'}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setAuthMessage('')
+                    setAuthView('credentials')
+                  }}
+                >
+                  Back to login
+                </button>
+              </div>
+
+              {authMessage && <div className="success local-feedback">{renderTextLines(authMessage)}</div>}
+            </div>
+          )}
         </section>
       </main>
     )
@@ -759,26 +1160,29 @@ function App() {
           </div>
         </div>
 
-        <label>Business Name</label>
+        <label htmlFor="business-name">Business Name</label>
         <input
+          id="business-name"
           value={businessName}
           onChange={(e) => setBusinessName(e.target.value)}
         />
 
-        <label>Category</label>
-        <input value={category} onChange={(e) => setCategory(e.target.value)} />
+        <label htmlFor="business-category">Category</label>
+        <input id="business-category" value={category} onChange={(e) => setCategory(e.target.value)} />
 
-        <label>Location</label>
-        <input value={location} onChange={(e) => setLocation(e.target.value)} />
+        <label htmlFor="business-location">Location</label>
+        <input id="business-location" value={location} onChange={(e) => setLocation(e.target.value)} />
 
-        <label>Contact Email</label>
+        <label htmlFor="business-contact-email">Contact Email</label>
         <input
+          id="business-contact-email"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
         />
 
-        <label>Contact Phone</label>
+        <label htmlFor="business-contact-phone">Contact Phone</label>
         <input
+          id="business-contact-phone"
           value={contactPhone}
           onChange={(e) => setContactPhone(e.target.value)}
         />
@@ -816,24 +1220,27 @@ function App() {
             <strong>{businessId ? businessId : 'Register business first'}</strong>
           </p>
 
-          <label>Provider</label>
+          <label htmlFor="provider-select">Provider</label>
           <select
+            id="provider-select"
             value={selectedProvider}
             onChange={(e) => setSelectedProvider(e.target.value)}
           >
             <option>Paystack</option>
-            <option>Flutterwave</option>
-            <option>Monnify</option>
             <option>Bank Statement</option>
             <option>Other</option>
+            <option disabled>Flutterwave (coming soon)</option>
+            <option disabled>Monnify (coming soon)</option>
           </select>
 
-          <label>Transaction File</label>
+          <label htmlFor="transaction-file">Transaction File</label>
           <input
+            id="transaction-file"
             type="file"
-            accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg"
+            accept=".csv,.xlsx"
             onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
           />
+          <p className="muted field-hint">Accepts CSV or Excel (.xlsx) files.</p>
 
           <button
             disabled={!businessId || loadingStates.uploadCsv}
@@ -917,7 +1324,9 @@ function App() {
 
   function renderReconciliationPage() {
     const items = getReconciliationItems(reconciliationMessage)
-    const issueItems = items.filter((item) => getResultType(item) !== 'MATCHED').slice(0, 10)
+    const allIssueItems = items.filter((item) => getResultType(item) !== 'MATCHED')
+    const issueItems = allIssueItems.slice(0, mismatchListLimit)
+    const hiddenIssueCount = allIssueItems.length - issueItems.length
 
     return (
       <section className="page-section">
@@ -940,6 +1349,13 @@ function App() {
               : 'Run Reconciliation'}
           </button>
         </div>
+
+        {reconciliationIsStale && (
+          <div className="warning-banner">
+            New transactions were imported since the last reconciliation run.
+            Run reconciliation again to include them.
+          </div>
+        )}
 
         {lastReconciliationDate !== 'Not run yet' && (
           <div className="local-result reconciliation-run-summary">
@@ -999,12 +1415,21 @@ function App() {
         <div className="page-subsection">
           <div className="subsection-header">
             <h2>Mismatch list</h2>
-            <button
-              disabled={!businessId || loadingStates.exportCsv}
-              onClick={exportCsv}
-            >
-              {loadingStates.exportCsv ? 'Downloading...' : 'Download CSV'}
-            </button>
+            <div className="subsection-actions">
+              <button
+                disabled={!businessId || loadingStates.exportMismatches}
+                onClick={exportMismatches}
+              >
+                {loadingStates.exportMismatches ? 'Exporting...' : 'Export Mismatches'}
+              </button>
+              <button
+                className="secondary-button"
+                disabled={!businessId || loadingStates.exportCsv}
+                onClick={exportCsv}
+              >
+                {loadingStates.exportCsv ? 'Downloading...' : 'Download All CSV'}
+              </button>
+            </div>
           </div>
 
           <div className="explanation-box">
@@ -1040,6 +1465,16 @@ function App() {
             </div>
           )}
 
+          {hiddenIssueCount > 0 && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setMismatchListLimit((current) => current + 10)}
+            >
+              Show {Math.min(hiddenIssueCount, 10)} more ({hiddenIssueCount} not shown)
+            </button>
+          )}
+
           {exportMessage && (
             <div className="local-message">{renderTextLines(exportMessage)}</div>
           )}
@@ -1070,12 +1505,14 @@ function App() {
             </button>
           </div>
 
-          <div className="report-card muted-card">
+          <div className="report-card">
             <div>
               <h2>Export mismatch report</h2>
-              <p>Coming later. Not connected to a backend endpoint yet.</p>
+              <p>Download only the unmatched, duplicate, and mismatched records.</p>
             </div>
-            <button disabled>Unavailable</button>
+            <button disabled={!businessId || loadingStates.exportMismatches} onClick={exportMismatches}>
+              {loadingStates.exportMismatches ? 'Exporting...' : 'Export Mismatches'}
+            </button>
           </div>
 
           <div className="report-card muted-card">

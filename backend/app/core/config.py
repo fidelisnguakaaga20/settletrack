@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str
     access_token_expire_minutes: int
+    google_client_id: str = ""
 
     class Config:
         env_file = ".env"
