@@ -37,7 +37,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     user = User(
         full_name=payload.full_name,
         email=payload.email,
-        password_hash=hash_password(payload.password)
+        password_hash=hash_password(payload.password),
+        is_admin=payload.email.strip().lower() in settings.admin_email_list,
     )
 
     db.add(user)
@@ -104,6 +105,7 @@ def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
             full_name=claims.get("name") or email.split("@")[0],
             email=email,
             password_hash=hash_password(secrets.token_urlsafe(32)),
+            is_admin=email.strip().lower() in settings.admin_email_list,
         )
         db.add(user)
         db.commit()

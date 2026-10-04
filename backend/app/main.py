@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.business import router as business_router
 from app.api.csv_upload import router as csv_upload_router
 from app.api.dashboard import router as dashboard_router
 from app.api.export import router as export_router
+from app.api.feedback import router as feedback_router
 from app.api.me import router as me_router
 from app.api.mismatch_detection import router as mismatch_router
 from app.api.paystack import router as paystack_router
@@ -44,6 +46,8 @@ app.include_router(mismatch_router)
 app.include_router(dashboard_router)
 app.include_router(export_router)
 app.include_router(paystack_router)
+app.include_router(feedback_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

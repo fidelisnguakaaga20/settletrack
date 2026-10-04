@@ -19,6 +19,9 @@ declare global {
 
 const API_URL = import.meta.env.VITE_API_URL
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
+const WHATSAPP_SUPPORT_URL =
+  'https://wa.me/2347031128081?text=' +
+  encodeURIComponent('Hi, I need help with SettleTrack.')
 
 type ApiObject = Record<string, unknown>
 type ActivePage =
@@ -28,6 +31,9 @@ type ActivePage =
   | 'reconciliation'
   | 'reports'
   | 'settings'
+  | 'feedback'
+  | 'pricing'
+  | 'admin'
 
 type LastImport = {
   fileName: string
@@ -250,6 +256,23 @@ function LoadingLabel({ text }: { text: string }) {
 
 type ToastItem = { id: number; message: string; type: 'success' | 'error' }
 
+function WhatsAppSupportButton() {
+  return (
+    <a
+      className="whatsapp-float-button"
+      href={WHATSAPP_SUPPORT_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Chat with SettleTrack support on WhatsApp"
+      title="Chat with us on WhatsApp"
+    >
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+        <path d="M12.04 2c-5.52 0-10 4.48-10 10 0 1.77.46 3.45 1.26 4.9L2 22l5.25-1.26A9.96 9.96 0 0 0 12.04 22c5.52 0 10-4.48 10-10s-4.48-10-10-10Zm0 18.2c-1.56 0-3.02-.43-4.27-1.18l-.3-.18-3.12.75.76-3.04-.2-.31A8.17 8.17 0 0 1 3.84 12c0-4.53 3.68-8.2 8.2-8.2 4.53 0 8.2 3.67 8.2 8.2 0 4.53-3.67 8.2-8.2 8.2Zm4.5-6.14c-.25-.12-1.46-.72-1.68-.8-.23-.08-.39-.12-.56.12-.17.25-.64.8-.78.96-.14.17-.29.19-.53.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.38-1.72-.15-.25-.02-.38.11-.5.11-.11.25-.29.37-.43.12-.14.16-.25.24-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.23.25-.86.84-.86 2.04 0 1.2.88 2.37 1 2.53.12.17 1.74 2.65 4.21 3.72.59.25 1.05.4 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.46-.6 1.66-1.17.21-.58.21-1.08.15-1.18-.06-.1-.23-.16-.48-.28Z" />
+      </svg>
+    </a>
+  )
+}
+
 function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: number) => void }) {
   if (toasts.length === 0) return null
 
@@ -368,7 +391,13 @@ function App() {
   const [resetToken, setResetToken] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showWakeupHint, setShowWakeupHint] = useState(false)
   const googleButtonContainerRef = useRef<HTMLDivElement | null>(null)
+  const [meInfo, setMeInfo] = useState<{
+    isAdmin: boolean
+    trialDaysRemaining: number
+    trialExpired: boolean
+  } | null>(null)
   const [businessMessage, setBusinessMessage] = useState('')
   const [csvMessage, setCsvMessage] = useState('')
   const [exportMessage, setExportMessage] = useState('')
@@ -409,6 +438,9 @@ function App() {
     forgotPassword: false,
     resetPassword: false,
     googleLogin: false,
+    submitFeedback: false,
+    upgradeInterest: false,
+    loadAdminData: false,
   })
 
   const [businessName, setBusinessName] = useState(getString(storedSession?.businessName))
@@ -422,6 +454,27 @@ function App() {
 
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [selectedProvider, setSelectedProvider] = useState('Paystack')
+
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null)
+  const [feedbackSentMessage, setFeedbackSentMessage] = useState('')
+
+  const [adminOverview, setAdminOverview] = useState<unknown>(null)
+  const [adminUsers, setAdminUsers] = useState<unknown[]>([])
+  const [adminFeedback, setAdminFeedback] = useState<unknown[]>([])
+
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {
+      // Pre-warm only - a failure here is not user-facing.
+    })
+  }, [])
+
+  useEffect(() => {
+    if (token) {
+      fetchMe(token)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     try {
@@ -521,6 +574,7 @@ function App() {
     }
 
     setActionLoading('register', true)
+    const wakeupTimer = window.setTimeout(() => setShowWakeupHint(true), 6000)
 
     try {
       const response = await fetch(`${API_URL}/auth/register`, {
@@ -545,6 +599,8 @@ function App() {
       setAuthMessage('Registration failed.')
       showToast('Registration failed. Please try again.', 'error')
     } finally {
+      window.clearTimeout(wakeupTimer)
+      setShowWakeupHint(false)
       setActionLoading('register', false)
     }
   }
@@ -556,6 +612,7 @@ function App() {
     }
 
     setActionLoading('login', true)
+    const wakeupTimer = window.setTimeout(() => setShowWakeupHint(true), 6000)
 
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
@@ -579,6 +636,7 @@ function App() {
         showToast('Logged in successfully!')
         resetWorkspaceState()
         setActivePage('dashboard')
+        fetchMe(data.access_token)
         return
       }
 
@@ -588,6 +646,8 @@ function App() {
       setAuthMessage('Login failed.')
       showToast('Login failed. Please try again.', 'error')
     } finally {
+      window.clearTimeout(wakeupTimer)
+      setShowWakeupHint(false)
       setActionLoading('login', false)
     }
   }
@@ -617,6 +677,7 @@ function App() {
         showToast('Logged in with Google!')
         resetWorkspaceState()
         setActivePage('dashboard')
+        fetchMe(data.access_token)
         return
       }
 
@@ -738,8 +799,31 @@ function App() {
     setForgotEmail('')
     setResetToken('')
     setNewPassword('')
+    setMeInfo(null)
     resetWorkspaceState()
     setActivePage('dashboard')
+  }
+
+  async function fetchMe(authToken: string) {
+    try {
+      const response = await fetch(`${API_URL}/me`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+
+      if (!response.ok) return
+
+      const data = await response.json()
+
+      if (!isObject(data)) return
+
+      setMeInfo({
+        isAdmin: data.is_admin === true,
+        trialDaysRemaining: getNumber(data.trial_days_remaining),
+        trialExpired: data.trial_expired === true,
+      })
+    } catch {
+      // Non-critical - admin nav and trial badge simply won't show.
+    }
   }
 
   async function createBusiness() {
@@ -983,6 +1067,87 @@ function App() {
     }
   }
 
+  async function submitFeedback() {
+    if (!feedbackText.trim()) {
+      setFeedbackSentMessage('Please enter a message before submitting.')
+      return
+    }
+
+    setActionLoading('submitFeedback', true)
+
+    try {
+      const response = await fetch(`${API_URL}/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message: feedbackText, rating: feedbackRating }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        const message = getString(data.detail) || 'Could not submit feedback. Please try again.'
+        setFeedbackSentMessage(message)
+        showToast(message, 'error')
+        return
+      }
+
+      setFeedbackSentMessage(getString(data.message) || 'Thank you for your feedback!')
+      showToast('Feedback submitted — thank you!')
+      setFeedbackText('')
+      setFeedbackRating(null)
+    } catch {
+      setFeedbackSentMessage('Could not submit feedback. Please try again.')
+      showToast('Could not submit feedback. Please try again.', 'error')
+    } finally {
+      setActionLoading('submitFeedback', false)
+    }
+  }
+
+  async function requestUpgrade() {
+    setActionLoading('upgradeInterest', true)
+
+    try {
+      const response = await fetch(`${API_URL}/upgrade-interest`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!response.ok) {
+        showToast('Could not send your upgrade request. Please try WhatsApp instead.', 'error')
+        return
+      }
+
+      showToast("Thanks! We'll be in touch about upgrading.")
+    } catch {
+      showToast('Could not send your upgrade request. Please try WhatsApp instead.', 'error')
+    } finally {
+      setActionLoading('upgradeInterest', false)
+    }
+  }
+
+  async function loadAdminData() {
+    setActionLoading('loadAdminData', true)
+
+    try {
+      const [overviewRes, usersRes, feedbackRes] = await Promise.all([
+        fetch(`${API_URL}/admin/overview`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/admin/feedback`, { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+
+      if (overviewRes.ok) setAdminOverview(await overviewRes.json())
+      if (usersRes.ok) setAdminUsers(await usersRes.json())
+      if (feedbackRes.ok) setAdminFeedback(await feedbackRes.json())
+    } catch {
+      showToast('Could not load admin data.', 'error')
+    } finally {
+      setActionLoading('loadAdminData', false)
+    }
+  }
+
   const reconciliationStats = getReconciliationStats(reconciliationMessage)
   const totalTransactions = getDashboardTotalTransactions(dashboardMessage, lastImports)
 
@@ -990,6 +1155,7 @@ function App() {
     return (
       <>
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <WhatsAppSupportButton />
         <main className="auth-page">
         <section className="auth-card">
           <div className="brand-mark">ST</div>
@@ -1040,6 +1206,12 @@ function App() {
                   {loadingStates.login ? <LoadingLabel text="logging you in" /> : 'Login'}
                 </button>
               </div>
+
+              {showWakeupHint && (
+                <p className="wakeup-hint">
+                  Still working — our free server may be waking up from inactivity. This can take up to a minute on the first try.
+                </p>
+              )}
 
               <div className="auth-divider"><span>or</span></div>
 
@@ -1652,6 +1824,256 @@ function App() {
           <p><strong>Contact email:</strong> {contactEmail || 'Not provided'}</p>
           <p><strong>Contact phone:</strong> {contactPhone || 'Not provided'}</p>
         </div>
+
+        <div className="info-card">
+          <h2>Share SettleTrack</h2>
+          <p className="muted">Know a business that needs help with reconciliation? Share SettleTrack with them.</p>
+          <div className="share-buttons">
+            <a
+              className="share-button share-whatsapp"
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `Check out SettleTrack — payment reconciliation for Nigerian SMEs. ${window.location.origin}`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              WhatsApp
+            </a>
+            <a
+              className="share-button share-twitter"
+              href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                'Check out SettleTrack — payment reconciliation for Nigerian SMEs.'
+              )}&url=${encodeURIComponent(window.location.origin)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              X / Twitter
+            </a>
+            <a
+              className="share-button share-linkedin"
+              href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.origin)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              LinkedIn
+            </a>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(window.location.origin)
+                  .then(() => showToast('Link copied!'))
+                  .catch(() => showToast('Could not copy link.', 'error'))
+              }}
+            >
+              Copy Link
+            </button>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  function renderFeedbackPage() {
+    return (
+      <section className="page-section narrow-page">
+        <div className="page-heading">
+          <div>
+            <p className="eyebrow">Feedback</p>
+            <h1>Tell us what you think</h1>
+            <p>Your feedback directly shapes what we build next during this pilot.</p>
+          </div>
+        </div>
+
+        <div className="form-card">
+          <label htmlFor="feedback-message">Your feedback</label>
+          <textarea
+            id="feedback-message"
+            rows={5}
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            placeholder="What's working well? What's confusing or missing?"
+          />
+
+          <label htmlFor="feedback-rating">How would you rate SettleTrack so far?</label>
+          <select
+            id="feedback-rating"
+            value={feedbackRating ?? ''}
+            onChange={(e) => setFeedbackRating(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">Prefer not to say</option>
+            <option value="5">5 — Excellent</option>
+            <option value="4">4 — Good</option>
+            <option value="3">3 — Okay</option>
+            <option value="2">2 — Needs work</option>
+            <option value="1">1 — Poor</option>
+          </select>
+
+          <button disabled={loadingStates.submitFeedback} onClick={submitFeedback}>
+            {loadingStates.submitFeedback ? <LoadingLabel text="submitting" /> : 'Submit Feedback'}
+          </button>
+
+          {feedbackSentMessage && (
+            <div className="success local-feedback">{renderTextLines(feedbackSentMessage)}</div>
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  function renderPricingPage() {
+    const trialDaysRemaining = meInfo?.trialDaysRemaining ?? 14
+    const trialExpired = meInfo?.trialExpired ?? false
+
+    return (
+      <section className="page-section narrow-page">
+        <div className="page-heading">
+          <div>
+            <p className="eyebrow">Pricing</p>
+            <h1>Pilot Pricing</h1>
+            <p>SettleTrack is free during the pilot. Paid pricing is still being finalized based on pilot feedback.</p>
+          </div>
+        </div>
+
+        <div className={trialExpired ? 'trial-card trial-expired' : 'trial-card'}>
+          <h2>{trialExpired ? 'Your trial has ended' : 'You are on the 14-day free trial'}</h2>
+          <p>
+            {trialExpired
+              ? 'Thanks for trying SettleTrack during the pilot. Reach out below to keep using it.'
+              : `${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} remaining in your trial.`}
+          </p>
+        </div>
+
+        <div className="info-card">
+          <h2>What happens after the trial?</h2>
+          <p>
+            Pricing is still being decided with feedback from pilot users like you — nothing will be
+            charged automatically. If you would like to keep using SettleTrack after your trial, let us know
+            and we'll reach out about plans.
+          </p>
+          <div className="actions">
+            <button disabled={loadingStates.upgradeInterest} onClick={requestUpgrade}>
+              {loadingStates.upgradeInterest ? <LoadingLabel text="sending" /> : "I'm interested in upgrading"}
+            </button>
+            <a
+              className="secondary-button whatsapp-link-button"
+              href={WHATSAPP_SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Chat on WhatsApp
+            </a>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  function renderAdminPage() {
+    const overview = isObject(adminOverview) ? adminOverview : null
+
+    return (
+      <section className="page-section">
+        <div className="page-heading">
+          <div>
+            <p className="eyebrow">Admin</p>
+            <h1>Pilot Overview</h1>
+            <p>Visible only to admin accounts.</p>
+          </div>
+          <button disabled={loadingStates.loadAdminData} onClick={loadAdminData}>
+            {loadingStates.loadAdminData ? <LoadingLabel text="loading" /> : 'Refresh'}
+          </button>
+        </div>
+
+        {overview && (
+          <div className="summary-grid">
+            <div className="summary-card">
+              <span>Total users</span>
+              <strong>{getNumber(overview.total_users)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Total businesses</span>
+              <strong>{getNumber(overview.total_businesses)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Total transactions</span>
+              <strong>{getNumber(overview.total_transactions)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Feedback received</span>
+              <strong>{getNumber(overview.total_feedback)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Upgrade interest</span>
+              <strong>{getNumber(overview.total_upgrade_interest)}</strong>
+            </div>
+          </div>
+        )}
+
+        <div className="page-subsection">
+          <h2>Users</h2>
+          {adminUsers.length === 0 ? (
+            <p className="muted">No data loaded yet. Click Refresh.</p>
+          ) : (
+            <div className="small-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Businesses</th>
+                    <th>Admin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminUsers.map((user, index) => {
+                    const row = isObject(user) ? user : {}
+                    return (
+                      <tr key={index}>
+                        <td>{getString(row.full_name)}</td>
+                        <td>{getString(row.email)}</td>
+                        <td>{getNumber(row.business_count)}</td>
+                        <td>{row.is_admin ? 'Yes' : 'No'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="page-subsection">
+          <h2>Feedback inbox</h2>
+          {adminFeedback.length === 0 ? (
+            <p className="muted">No feedback submitted yet.</p>
+          ) : (
+            <div className="small-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>From</th>
+                    <th>Rating</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminFeedback.map((item, index) => {
+                    const row = isObject(item) ? item : {}
+                    return (
+                      <tr key={index}>
+                        <td>{getString(row.submitted_by)} <span className="muted">({getString(row.contact_email)})</span></td>
+                        <td>{row.rating ? `${getNumber(row.rating)}/5` : '—'}</td>
+                        <td>{getString(row.message)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </section>
     )
   }
@@ -1662,6 +2084,9 @@ function App() {
     if (activePage === 'reconciliation') return renderReconciliationPage()
     if (activePage === 'reports') return renderReportsPage()
     if (activePage === 'settings') return renderSettingsPage()
+    if (activePage === 'feedback') return renderFeedbackPage()
+    if (activePage === 'pricing') return renderPricingPage()
+    if (activePage === 'admin') return renderAdminPage()
     return renderDashboardPage()
   }
 
@@ -1671,12 +2096,16 @@ function App() {
     { key: 'upload', label: 'Upload Transactions' },
     { key: 'reconciliation', label: 'Reconciliation' },
     { key: 'reports', label: 'Reports / Export' },
+    { key: 'pricing', label: 'Pricing' },
+    { key: 'feedback', label: 'Feedback' },
     { key: 'settings', label: 'Settings' },
+    ...(meInfo?.isAdmin ? [{ key: 'admin' as ActivePage, label: 'Admin' }] : []),
   ]
 
   return (
     <>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <WhatsAppSupportButton />
       <main className="dashboard-shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
