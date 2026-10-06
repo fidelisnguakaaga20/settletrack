@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -44,6 +45,8 @@ async def upload_transactions_csv(
 
     imported_count = 0
     rejected_rows = list(import_result["rejected_rows"])
+    batch_id = str(uuid.uuid4())
+    source_filename = file.filename or "upload"
 
     for row in valid_rows:
         existing_transaction = db.query(Transaction).filter(
@@ -77,7 +80,9 @@ async def upload_transactions_csv(
             status=row["status"],
             payment_date=payment_date,
             customer_identifier=row.get("customer_identifier"),
-            settlement_reference=row.get("settlement_reference") or None
+            settlement_reference=row.get("settlement_reference") or None,
+            import_batch_id=batch_id,
+            source_filename=source_filename,
         )
 
         db.add(transaction)
@@ -89,5 +94,37 @@ async def upload_transactions_csv(
     import_result["rejected"] = len(rejected_rows)
     import_result["total_rejected_rows"] = len(rejected_rows)
     import_result["rejected_rows"] = rejected_rows
+    import_result["import_batch_id"] = batch_id if imported_count > 0 else None
 
     return import_result
+
+
+@router.delete("/imports/{batch_id}")
+def delete_import_batch(
+    batch_id: str,
+    business_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    business = db.query(Business).filter(
+        Business.id == business_id,
+        Business.user_id == current_user.id
+    ).first()
+
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    deleted_count = db.query(Transaction).filter(
+        Transaction.business_id == business_id,
+        Transaction.import_batch_id == batch_id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    if deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    return {
+        "message": f"Removed {deleted_count} transaction(s) from this import.",
+        "deleted_count": deleted_count
+    }

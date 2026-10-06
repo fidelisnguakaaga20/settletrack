@@ -7,7 +7,8 @@ def detect_mismatches(reconciliation_results):
                 "csv_transaction_id": result["csv_transaction_id"],
                 "provider_transaction_id": result["provider_transaction_id"],
                 "mismatch_type": result["result_type"],
-                "reason": result["reason"]
+                "reason": result["reason"],
+                "transaction_reference": result.get("transaction_reference")
             })
 
     return mismatches

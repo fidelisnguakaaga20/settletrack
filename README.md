@@ -74,6 +74,8 @@ npm run lint
 npm run build
 ```
 
+Backend API-level tests use the `client` fixture in `backend/tests/conftest.py`, which runs against a dedicated `backend/test-session.db` (gitignored, wiped before each test) rather than your local dev database.
+
 ## Trying it out
 
 A sample transaction file is at [backend/sample-transactions-demo.csv](backend/sample-transactions-demo.csv) — includes a duplicate reference and failed payments so reconciliation has something to flag. Register an account, create a business, upload that file, then run reconciliation.

@@ -19,6 +19,8 @@ class Transaction(Base):
     customer_identifier = Column(String, nullable=True, index=True)
     settlement_reference = Column(String, nullable=True, index=True)
     raw_payload = Column(Text, nullable=True)
+    import_batch_id = Column(String, nullable=True, index=True)
+    source_filename = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(

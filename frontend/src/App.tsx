@@ -41,6 +41,16 @@ type LastImport = {
   imported: number
   rejected: number
   fileType: string
+  batchId: string | null
+}
+
+type BusinessSummary = {
+  id: number
+  name: string
+  category: string
+  location: string
+  contactEmail: string
+  contactPhone: string
 }
 
 function isObject(value: unknown): value is ApiObject {
@@ -117,6 +127,7 @@ function getCsvUploadResult(data: unknown) {
       rejected: 0,
       fileType: 'Unknown',
       detectedColumns: [] as { source: string; target: string }[],
+      batchId: null as string | null,
     }
   }
 
@@ -194,6 +205,7 @@ function getCsvUploadResult(data: unknown) {
     rejected,
     fileType: friendlyFileType(detectedFileType),
     detectedColumns,
+    batchId: typeof data.import_batch_id === 'string' ? data.import_batch_id : null,
   }
 }
 
@@ -209,6 +221,11 @@ function getResultType(item: unknown): string {
 function getReason(item: unknown): string {
   if (!isObject(item)) return 'No reason provided'
   return getString(item.reason) || 'No reason provided'
+}
+
+function getReference(item: unknown): string {
+  if (!isObject(item)) return ''
+  return getString(item.transaction_reference)
 }
 
 function getReconciliationItems(message: unknown): unknown[] {
@@ -394,7 +411,9 @@ function renderDashboardMessage(message: unknown) {
 
 function readStoredSession() {
   try {
-    const raw = window.localStorage.getItem('settletrack_session')
+    const raw =
+      window.localStorage.getItem('settletrack_session') ||
+      window.sessionStorage.getItem('settletrack_session')
     if (!raw) return null
     const parsed = JSON.parse(raw)
     return isObject(parsed) ? parsed : null
@@ -414,6 +433,7 @@ function App() {
   const [token, setToken] = useState(getString(storedSession?.token))
   const [authMessage, setAuthMessage] = useState('')
   const [authView, setAuthView] = useState<'credentials' | 'forgot' | 'reset'>('credentials')
+  const [rememberMe, setRememberMe] = useState(true)
   const [forgotEmail, setForgotEmail] = useState('')
   const [resetToken, setResetToken] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -425,6 +445,8 @@ function App() {
     trialDaysRemaining: number
     trialExpired: boolean
   } | null>(null)
+  const [myBusinesses, setMyBusinesses] = useState<BusinessSummary[]>([])
+  const [isEditingBusiness, setIsEditingBusiness] = useState(false)
   const [businessMessage, setBusinessMessage] = useState('')
   const [csvMessage, setCsvMessage] = useState('')
   const [exportMessage, setExportMessage] = useState('')
@@ -438,6 +460,8 @@ function App() {
   const [reconciliationMessage, setReconciliationMessage] = useState<unknown>(null)
   const [dashboardMessage, setDashboardMessage] = useState<unknown>(null)
   const [mismatchListLimit, setMismatchListLimit] = useState(10)
+  const [mismatchSearchText, setMismatchSearchText] = useState('')
+  const [mismatchTypeFilter, setMismatchTypeFilter] = useState('all')
   const [reconciliationIsStale, setReconciliationIsStale] = useState(false)
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
@@ -468,6 +492,8 @@ function App() {
     submitFeedback: false,
     upgradeInterest: false,
     loadAdminData: false,
+    updateBusiness: false,
+    deleteImport: false,
   })
 
   const [businessName, setBusinessName] = useState(getString(storedSession?.businessName))
@@ -499,6 +525,7 @@ function App() {
   useEffect(() => {
     if (token) {
       fetchMe(token)
+      fetchMyBusinesses(token)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -507,28 +534,39 @@ function App() {
     try {
       if (!token) {
         window.localStorage.removeItem('settletrack_session')
+        window.sessionStorage.removeItem('settletrack_session')
         return
       }
 
-      window.localStorage.setItem(
-        'settletrack_session',
-        JSON.stringify({
-          token,
-          fullName,
-          email,
-          businessId,
-          businessName,
-          category,
-          location,
-          contactEmail,
-          contactPhone,
-        })
-      )
+      const sessionJson = JSON.stringify({
+        token,
+        fullName,
+        email,
+        businessId,
+        businessName,
+        category,
+        location,
+        contactEmail,
+        contactPhone,
+      })
+
+      // "Remember me" controls where the session lives: localStorage survives
+      // a full browser/device restart (until explicit logout); sessionStorage
+      // clears when the tab/browser closes - the right default on a shared
+      // or public computer where the user didn't ask to stay signed in.
+      if (rememberMe) {
+        window.sessionStorage.removeItem('settletrack_session')
+        window.localStorage.setItem('settletrack_session', sessionJson)
+      } else {
+        window.localStorage.removeItem('settletrack_session')
+        window.sessionStorage.setItem('settletrack_session', sessionJson)
+      }
     } catch {
       // Browser storage unavailable (private mode, blocked site data) - session simply won't persist.
     }
   }, [
     token,
+    rememberMe,
     fullName,
     email,
     businessId,
@@ -673,6 +711,7 @@ function App() {
         resetWorkspaceState()
         setActivePage('dashboard')
         fetchMe(data.access_token)
+        fetchMyBusinesses(data.access_token)
         return
       }
 
@@ -715,6 +754,7 @@ function App() {
         resetWorkspaceState()
         setActivePage('dashboard')
         fetchMe(data.access_token)
+        fetchMyBusinesses(data.access_token)
         return
       }
 
@@ -805,16 +845,10 @@ function App() {
     }
   }
 
-  function resetWorkspaceState() {
+  function clearBusinessScopedViewState() {
     setBusinessMessage('')
     setCsvMessage('')
     setExportMessage('')
-    setBusinessName('')
-    setCategory('')
-    setLocation('')
-    setContactEmail('')
-    setContactPhone('')
-    setBusinessId(null)
     setCsvFile(null)
     setSelectedProvider('Paystack')
     setLastImports([])
@@ -825,6 +859,31 @@ function App() {
     setLastReconciliationDate('Not run yet')
     setMismatchListLimit(10)
     setReconciliationIsStale(false)
+    setMismatchSearchText('')
+    setMismatchTypeFilter('all')
+  }
+
+  function resetWorkspaceState() {
+    clearBusinessScopedViewState()
+    setBusinessName('')
+    setCategory('')
+    setLocation('')
+    setContactEmail('')
+    setContactPhone('')
+    setBusinessId(null)
+  }
+
+  function switchActiveBusiness(business: BusinessSummary) {
+    if (business.id === businessId) return
+
+    clearBusinessScopedViewState()
+    setBusinessId(business.id)
+    setBusinessName(business.name)
+    setCategory(business.category)
+    setLocation(business.location)
+    setContactEmail(business.contactEmail)
+    setContactPhone(business.contactPhone)
+    showToast(`Switched to ${business.name}`)
   }
 
   function logoutUser() {
@@ -837,6 +896,7 @@ function App() {
     setResetToken('')
     setNewPassword('')
     setMeInfo(null)
+    setRememberMe(true)
     resetWorkspaceState()
     setActivePage('dashboard')
   }
@@ -860,6 +920,35 @@ function App() {
       })
     } catch {
       // Non-critical - admin nav and trial badge simply won't show.
+    }
+  }
+
+  async function fetchMyBusinesses(authToken: string) {
+    try {
+      const response = await fetch(`${API_URL}/businesses/my`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+
+      if (!response.ok) return
+
+      const data = await response.json()
+
+      if (!Array.isArray(data)) return
+
+      setMyBusinesses(
+        data
+          .filter((item): item is ApiObject => isObject(item) && typeof item.id === 'number')
+          .map((item) => ({
+            id: item.id as number,
+            name: getString(item.name) || `Business ${item.id}`,
+            category: getString(item.category),
+            location: getString(item.location),
+            contactEmail: getString(item.contact_email),
+            contactPhone: getString(item.contact_phone),
+          }))
+      )
+    } catch {
+      // Non-critical - the business switcher simply won't show.
     }
   }
 
@@ -915,6 +1004,7 @@ function App() {
         )
         showToast('Business registered successfully!')
         setActivePage('dashboard')
+        fetchMyBusinesses(token)
         return
       }
 
@@ -926,6 +1016,98 @@ function App() {
       showToast('Business registration failed. Please try again.', 'error')
     } finally {
       setActionLoading('createBusiness', false)
+    }
+  }
+
+  function cancelEditBusiness() {
+    const original = myBusinesses.find((b) => b.id === businessId)
+    if (original) {
+      setBusinessName(original.name)
+      setCategory(original.category)
+      setLocation(original.location)
+      setContactEmail(original.contactEmail)
+      setContactPhone(original.contactPhone)
+    }
+    setIsEditingBusiness(false)
+  }
+
+  async function updateBusiness() {
+    if (!businessId) return
+
+    if (businessName.trim().length < 2) {
+      const message = 'Please enter a business name (at least 2 characters).'
+      setBusinessMessage(message)
+      showToast(message, 'error')
+      return
+    }
+
+    setActionLoading('updateBusiness', true)
+
+    try {
+      const response = await authFetch(`${API_URL}/businesses/${businessId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: businessName,
+          category,
+          location,
+          contact_email: contactEmail,
+          contact_phone: contactPhone,
+        }),
+      })
+
+      if (response.status === 401) return
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        const message = getErrorMessage(data, 'Could not update business.')
+        setBusinessMessage(message)
+        showToast(message, 'error')
+        return
+      }
+
+      setBusinessMessage(getString(data.message) || 'Business updated successfully.')
+      showToast('Business updated successfully!')
+      setIsEditingBusiness(false)
+      fetchMyBusinesses(token)
+    } catch {
+      showToast('Could not update business. Please try again.', 'error')
+    } finally {
+      setActionLoading('updateBusiness', false)
+    }
+  }
+
+  async function deleteImportBatch(batchId: string) {
+    if (!businessId) return
+
+    setActionLoading('deleteImport', true)
+
+    try {
+      const response = await authFetch(
+        `${API_URL}/csv/imports/${batchId}?business_id=${businessId}`,
+        { method: 'DELETE' }
+      )
+
+      if (response.status === 401) return
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        showToast(getErrorMessage(data, 'Could not remove this import.'), 'error')
+        return
+      }
+
+      setLastImports((current) => current.filter((item) => item.batchId !== batchId))
+      showToast(getString(data.message) || 'Import removed.')
+
+      if (lastReconciliationDate !== 'Not run yet') {
+        setReconciliationIsStale(true)
+      }
+    } catch {
+      showToast('Could not remove this import. Please try again.', 'error')
+    } finally {
+      setActionLoading('deleteImport', false)
     }
   }
 
@@ -979,6 +1161,7 @@ function App() {
             imported: result.imported,
             rejected: result.rejected,
             fileType: result.fileType,
+            batchId: result.batchId,
           },
           ...current,
         ].slice(0, 5)
@@ -1246,6 +1429,16 @@ function App() {
                 />
               </div>
               <p className="muted field-hint">At least 8 characters.</p>
+
+              <label className="remember-me-row" htmlFor="remember-me">
+                <input
+                  id="remember-me"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                Keep me logged in on this device
+              </label>
 
               <button
                 className="link-button forgot-password-link"
@@ -1622,6 +1815,9 @@ function App() {
 
         <div className="page-subsection">
           <h2>Last 5 imports</h2>
+          <p className="muted">
+            Uploaded the wrong file? Remove it below to take its transactions back out.
+          </p>
           {lastImports.length === 0 ? (
             <p className="muted">No imports yet.</p>
           ) : (
@@ -1633,15 +1829,28 @@ function App() {
                     <th>Provider</th>
                     <th>Imported</th>
                     <th>Rejected</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lastImports.map((item) => (
-                    <tr key={`${item.fileName}-${item.provider}`}>
+                  {lastImports.map((item, index) => (
+                    <tr key={item.batchId || `${item.fileName}-${item.provider}-${index}`}>
                       <td>{item.fileName}</td>
                       <td>{item.provider}</td>
                       <td>{item.imported}</td>
                       <td>{item.rejected}</td>
+                      <td>
+                        {item.batchId && (
+                          <button
+                            className="secondary-button danger-button"
+                            type="button"
+                            disabled={loadingStates.deleteImport}
+                            onClick={() => deleteImportBatch(item.batchId as string)}
+                          >
+                            {loadingStates.deleteImport ? <LoadingLabel text="removing" /> : 'Delete'}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1656,8 +1865,23 @@ function App() {
   function renderReconciliationPage() {
     const items = getReconciliationItems(reconciliationMessage)
     const allIssueItems = items.filter((item) => getResultType(item) !== 'MATCHED')
-    const issueItems = allIssueItems.slice(0, mismatchListLimit)
-    const hiddenIssueCount = allIssueItems.length - issueItems.length
+
+    const searchText = mismatchSearchText.trim().toLowerCase()
+    const filteredIssueItems = allIssueItems.filter((item) => {
+      if (mismatchTypeFilter !== 'all' && getResultType(item) !== mismatchTypeFilter) {
+        return false
+      }
+
+      if (!searchText) return true
+
+      return (
+        getReference(item).toLowerCase().includes(searchText) ||
+        getReason(item).toLowerCase().includes(searchText)
+      )
+    })
+
+    const issueItems = filteredIssueItems.slice(0, mismatchListLimit)
+    const hiddenIssueCount = filteredIssueItems.length - issueItems.length
 
     return (
       <section className="page-section">
@@ -1771,9 +1995,34 @@ function App() {
             <p><strong>Failed payment means</strong> the transaction status shows the payment did not succeed.</p>
           </div>
 
+          {allIssueItems.length > 0 && (
+            <div className="mismatch-filters">
+              <input
+                type="text"
+                placeholder="Search by reference or reason..."
+                value={mismatchSearchText}
+                onChange={(e) => setMismatchSearchText(e.target.value)}
+                aria-label="Search mismatches"
+              />
+              <select
+                value={mismatchTypeFilter}
+                onChange={(e) => setMismatchTypeFilter(e.target.value)}
+                aria-label="Filter by issue type"
+              >
+                <option value="all">All issue types</option>
+                <option value="UNMATCHED">Unmatched</option>
+                <option value="AMOUNT_MISMATCH">Amount mismatch</option>
+                <option value="DUPLICATE_REFERENCE">Duplicate reference</option>
+                <option value="FAILED_PAYMENT">Failed payment</option>
+              </select>
+            </div>
+          )}
+
           {issueItems.length === 0 ? (
             <p className="muted">
-              No reconciliation issues found in the imported records. Check Upload Transactions for rejected rows or duplicate import issues.
+              {allIssueItems.length === 0
+                ? 'No reconciliation issues found in the imported records. Check Upload Transactions for rejected rows or duplicate import issues.'
+                : 'No mismatches match your search or filter.'}
             </p>
           ) : (
             <div className="small-table-wrap">
@@ -1781,6 +2030,7 @@ function App() {
                 <thead>
                   <tr>
                     <th>Issue type</th>
+                    <th>Reference</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
@@ -1788,6 +2038,7 @@ function App() {
                   {issueItems.map((item, index) => (
                     <tr key={`${getResultType(item)}-${index}`}>
                       <td>{friendlyFieldName(getResultType(item).toLowerCase())}</td>
+                      <td>{getReference(item) || '—'}</td>
                       <td>{getReason(item)}</td>
                     </tr>
                   ))}
@@ -1880,13 +2131,57 @@ function App() {
         </div>
 
         <div className="info-card">
-          <h2>Business information</h2>
-          <p><strong>Business:</strong> {businessName || 'Not provided'}</p>
-          <p><strong>Business ID:</strong> {businessId || 'Not created yet'}</p>
-          <p><strong>Category:</strong> {category || 'Not provided'}</p>
-          <p><strong>Location:</strong> {location || 'Not provided'}</p>
-          <p><strong>Contact email:</strong> {contactEmail || 'Not provided'}</p>
-          <p><strong>Contact phone:</strong> {contactPhone || 'Not provided'}</p>
+          <div className="subsection-header">
+            <h2>Business information</h2>
+            {businessId && !isEditingBusiness && (
+              <button className="secondary-button" type="button" onClick={() => setIsEditingBusiness(true)}>
+                Edit
+              </button>
+            )}
+          </div>
+
+          {!businessId ? (
+            <p className="muted">No business registered yet.</p>
+          ) : isEditingBusiness ? (
+            <>
+              <label htmlFor="edit-business-name">Business Name (required)</label>
+              <input id="edit-business-name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+
+              <label htmlFor="edit-business-category">Category (optional)</label>
+              <input id="edit-business-category" value={category} onChange={(e) => setCategory(e.target.value)} />
+
+              <label htmlFor="edit-business-location">Location (optional)</label>
+              <input id="edit-business-location" value={location} onChange={(e) => setLocation(e.target.value)} />
+
+              <label htmlFor="edit-business-contact-email">Contact Email (optional)</label>
+              <input id="edit-business-contact-email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+
+              <label htmlFor="edit-business-contact-phone">Contact Phone (optional)</label>
+              <input id="edit-business-contact-phone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+
+              <div className="actions">
+                <button disabled={loadingStates.updateBusiness} onClick={updateBusiness}>
+                  {loadingStates.updateBusiness ? <LoadingLabel text="saving" /> : 'Save Changes'}
+                </button>
+                <button className="secondary-button" type="button" onClick={cancelEditBusiness}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p><strong>Business:</strong> {businessName || 'Not provided'}</p>
+              <p><strong>Business ID:</strong> {businessId}</p>
+              <p><strong>Category:</strong> {category || 'Not provided'}</p>
+              <p><strong>Location:</strong> {location || 'Not provided'}</p>
+              <p><strong>Contact email:</strong> {contactEmail || 'Not provided'}</p>
+              <p><strong>Contact phone:</strong> {contactPhone || 'Not provided'}</p>
+            </>
+          )}
+
+          {businessMessage && (
+            <div className="success local-feedback">{renderTextLines(businessMessage)}</div>
+          )}
         </div>
 
         <div className="info-card">
@@ -2200,7 +2495,26 @@ function App() {
         <header className="topbar">
           <div>
             <span className="muted">Active business</span>
-            <strong>{businessName || (businessId ? `Business ${businessId}` : 'Not set')}</strong>
+            {myBusinesses.length > 1 ? (
+              <select
+                className="business-switcher"
+                value={businessId ?? ''}
+                onChange={(e) => {
+                  const selected = myBusinesses.find((b) => b.id === Number(e.target.value))
+                  if (selected) switchActiveBusiness(selected)
+                }}
+                aria-label="Switch active business"
+              >
+                {!businessId && <option value="">Choose a business</option>}
+                {myBusinesses.map((business) => (
+                  <option key={business.id} value={business.id}>
+                    {business.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <strong>{businessName || (businessId ? `Business ${businessId}` : 'Not set')}</strong>
+            )}
           </div>
           <div>
             <span className="muted">Signed in as</span>

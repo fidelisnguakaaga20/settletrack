@@ -15,6 +15,8 @@ logger = logging.getLogger("settletrack.migrations")
 MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN trial_started_at TIMESTAMP",
+    "ALTER TABLE transactions ADD COLUMN import_batch_id VARCHAR",
+    "ALTER TABLE transactions ADD COLUMN source_filename VARCHAR",
 ]
 
 ALREADY_EXISTS_MARKERS = ("already exists", "duplicate column")

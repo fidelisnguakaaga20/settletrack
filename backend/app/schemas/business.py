@@ -16,3 +16,7 @@ class BusinessCreateRequest(BaseModel):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+
+class BusinessUpdateRequest(BusinessCreateRequest):
+    pass
