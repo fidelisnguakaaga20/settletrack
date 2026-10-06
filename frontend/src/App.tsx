@@ -512,6 +512,7 @@ function App() {
     contactPhone,
   ])
 
+  const sessionExpiredHandledRef = useRef(false)
   const handleGoogleCredentialRef = useRef(handleGoogleCredential)
 
   useEffect(() => {
@@ -631,6 +632,7 @@ function App() {
       }
 
       if (data.access_token) {
+        sessionExpiredHandledRef.current = false
         setToken(data.access_token)
         setAuthMessage('Logged in successfully.')
         showToast('Logged in successfully!')
@@ -672,6 +674,7 @@ function App() {
       }
 
       if (data.access_token) {
+        sessionExpiredHandledRef.current = false
         setToken(data.access_token)
         setAuthMessage('Logged in with Google.')
         showToast('Logged in with Google!')
@@ -826,16 +829,31 @@ function App() {
     }
   }
 
+  async function authFetch(url: string, options: RequestInit = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (response.status === 401 && !sessionExpiredHandledRef.current) {
+      sessionExpiredHandledRef.current = true
+      showToast('Your session has expired. Please log in again.', 'error')
+      logoutUser()
+    }
+
+    return response
+  }
+
   async function createBusiness() {
     setActionLoading('createBusiness', true)
 
     try {
-      const response = await fetch(`${API_URL}/businesses`, {
+      const response = await authFetch(`${API_URL}/businesses`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: businessName,
           category,
@@ -844,6 +862,8 @@ function App() {
           contact_phone: contactPhone,
         }),
       })
+
+      if (response.status === 401) return
 
       const data = await response.json()
 
@@ -890,11 +910,12 @@ function App() {
       formData.append('file', csvFile)
       formData.append('provider', selectedProvider)
 
-      const response = await fetch(`${API_URL}/csv/transactions`, {
+      const response = await authFetch(`${API_URL}/csv/transactions`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       })
+
+      if (response.status === 401) return
 
       const data = await response.json()
       const result = getCsvUploadResult(data)
@@ -938,13 +959,12 @@ function App() {
     setActionLoading('runReconciliation', true)
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${API_URL}/reconciliation/run?business_id=${businessId}`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { method: 'POST' }
       )
+
+      if (response.status === 401) return
 
       const data = await response.json()
       setReconciliationMessage(data)
@@ -969,12 +989,11 @@ function App() {
     setActionLoading('viewDashboard', true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/dashboard/summary?business_id=${businessId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+      const response = await authFetch(
+        `${API_URL}/dashboard/summary?business_id=${businessId}`
       )
+
+      if (response.status === 401) return
 
       const data = await response.json()
       setDashboardMessage(data)
@@ -994,12 +1013,11 @@ function App() {
     setActionLoading('exportCsv', true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/export/transactions?business_id=${businessId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+      const response = await authFetch(
+        `${API_URL}/export/transactions?business_id=${businessId}`
       )
+
+      if (response.status === 401) return
 
       if (!response.ok) {
         setExportMessage('CSV export failed. Please try again.')
@@ -1035,12 +1053,11 @@ function App() {
     setActionLoading('exportMismatches', true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/export/mismatches?business_id=${businessId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+      const response = await authFetch(
+        `${API_URL}/export/mismatches?business_id=${businessId}`
       )
+
+      if (response.status === 401) return
 
       if (!response.ok) {
         setExportMessage('Mismatch export failed. Please try again.')
@@ -1076,14 +1093,13 @@ function App() {
     setActionLoading('submitFeedback', true)
 
     try {
-      const response = await fetch(`${API_URL}/feedback`, {
+      const response = await authFetch(`${API_URL}/feedback`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: feedbackText, rating: feedbackRating }),
       })
+
+      if (response.status === 401) return
 
       const data = await response.json()
 
@@ -1110,10 +1126,11 @@ function App() {
     setActionLoading('upgradeInterest', true)
 
     try {
-      const response = await fetch(`${API_URL}/upgrade-interest`, {
+      const response = await authFetch(`${API_URL}/upgrade-interest`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
       })
+
+      if (response.status === 401) return
 
       if (!response.ok) {
         showToast('Could not send your upgrade request. Please try WhatsApp instead.', 'error')
@@ -1133,10 +1150,12 @@ function App() {
 
     try {
       const [overviewRes, usersRes, feedbackRes] = await Promise.all([
-        fetch(`${API_URL}/admin/overview`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/admin/feedback`, { headers: { Authorization: `Bearer ${token}` } }),
+        authFetch(`${API_URL}/admin/overview`),
+        authFetch(`${API_URL}/admin/users`),
+        authFetch(`${API_URL}/admin/feedback`),
       ])
+
+      if (overviewRes.status === 401) return
 
       if (overviewRes.ok) setAdminOverview(await overviewRes.json())
       if (usersRes.ok) setAdminUsers(await usersRes.json())
