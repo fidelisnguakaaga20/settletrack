@@ -55,6 +55,33 @@ function getString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
+function getErrorMessage(data: unknown, fallback: string): string {
+  if (!isObject(data)) return fallback
+
+  if (typeof data.detail === 'string') return data.detail
+  if (typeof data.message === 'string') return data.message
+
+  // FastAPI validation errors send `detail` as an array of {loc, msg} objects,
+  // not a string - without this, every validation failure (weak password,
+  // invalid email, blank required field) showed only a generic fallback.
+  if (Array.isArray(data.detail)) {
+    const messages = data.detail
+      .map((item) => {
+        if (!isObject(item)) return ''
+        const loc = Array.isArray(item.loc) ? item.loc : []
+        const field = String(loc[loc.length - 1] ?? '')
+        const msg = getString(item.msg)
+        if (!msg) return ''
+        return field && field !== 'body' ? `${field}: ${msg}` : msg
+      })
+      .filter(Boolean)
+
+    if (messages.length > 0) return messages.join('; ')
+  }
+
+  return fallback
+}
+
 function friendlyFileType(value: string): string {
   if (value === 'xlsx') return 'Excel'
   if (value === 'csv') return 'CSV'
@@ -574,6 +601,13 @@ function App() {
       return
     }
 
+    if (password.length < 8) {
+      const message = 'Password must be at least 8 characters.'
+      setAuthMessage(message)
+      showToast(message, 'error')
+      return
+    }
+
     setActionLoading('register', true)
     const wakeupTimer = window.setTimeout(() => setShowWakeupHint(true), 6000)
 
@@ -587,7 +621,7 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        const message = getString(data.detail) || getString(data.message) || 'Registration failed.'
+        const message = getErrorMessage(data, 'Registration failed.')
         setAuthMessage(message)
         showToast(message, 'error')
         return
@@ -625,7 +659,7 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        const message = getString(data.detail) || getString(data.message) || 'Login failed.'
+        const message = getErrorMessage(data, 'Login failed.')
         setAuthMessage(message)
         showToast(message, 'error')
         return
@@ -667,7 +701,7 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        const message = getString(data.detail) || 'Google sign-in failed.'
+        const message = getErrorMessage(data, 'Google sign-in failed.')
         setAuthMessage(message)
         showToast(message, 'error')
         return
@@ -750,7 +784,7 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        const message = getString(data.detail) || 'Could not reset password.'
+        const message = getErrorMessage(data, 'Could not reset password.')
         setAuthMessage(message)
         showToast(message, 'error')
         return
@@ -848,6 +882,13 @@ function App() {
   }
 
   async function createBusiness() {
+    if (businessName.trim().length < 2) {
+      const message = 'Please enter a business name (at least 2 characters).'
+      setBusinessMessage(message)
+      showToast(message, 'error')
+      return
+    }
+
     setActionLoading('createBusiness', true)
 
     try {
@@ -877,7 +918,7 @@ function App() {
         return
       }
 
-      const message = getString(data.detail) || getString(data.message) || 'Business registration failed.'
+      const message = getErrorMessage(data, 'Business registration failed.')
       setBusinessMessage(message)
       showToast(message, 'error')
     } catch {
@@ -1104,7 +1145,7 @@ function App() {
       const data = await response.json()
 
       if (!response.ok) {
-        const message = getString(data.detail) || 'Could not submit feedback. Please try again.'
+        const message = getErrorMessage(data, 'Could not submit feedback. Please try again.')
         setFeedbackSentMessage(message)
         showToast(message, 'error')
         return
@@ -1204,6 +1245,7 @@ function App() {
                   onToggle={() => setShowPassword((current) => !current)}
                 />
               </div>
+              <p className="muted field-hint">At least 8 characters.</p>
 
               <button
                 className="link-button forgot-password-link"
@@ -1446,27 +1488,27 @@ function App() {
           </div>
         </div>
 
-        <label htmlFor="business-name">Business Name</label>
+        <label htmlFor="business-name">Business Name (required)</label>
         <input
           id="business-name"
           value={businessName}
           onChange={(e) => setBusinessName(e.target.value)}
         />
 
-        <label htmlFor="business-category">Category</label>
+        <label htmlFor="business-category">Category (optional)</label>
         <input id="business-category" value={category} onChange={(e) => setCategory(e.target.value)} />
 
-        <label htmlFor="business-location">Location</label>
+        <label htmlFor="business-location">Location (optional)</label>
         <input id="business-location" value={location} onChange={(e) => setLocation(e.target.value)} />
 
-        <label htmlFor="business-contact-email">Contact Email</label>
+        <label htmlFor="business-contact-email">Contact Email (optional)</label>
         <input
           id="business-contact-email"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
         />
 
-        <label htmlFor="business-contact-phone">Contact Phone</label>
+        <label htmlFor="business-contact-phone">Contact Phone (optional)</label>
         <input
           id="business-contact-phone"
           value={contactPhone}
@@ -1503,7 +1545,7 @@ function App() {
         <div className="form-card">
           <p>
             Active Business:{' '}
-            <strong>{businessId ? businessId : 'Register business first'}</strong>
+            <strong>{businessId ? (businessName || `Business ${businessId}`) : 'Register business first'}</strong>
           </p>
 
           <label htmlFor="provider-select">Provider</label>
