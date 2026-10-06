@@ -875,7 +875,7 @@ function App() {
     }
 
     if (!csvFile) {
-      setCsvMessage('Please choose a CSV or Excel file first.')
+      setCsvMessage('Please choose a CSV, Excel, or PDF file first.')
       return
     }
 
@@ -1504,10 +1504,13 @@ function App() {
           <input
             id="transaction-file"
             type="file"
-            accept=".csv,.xlsx"
+            accept=".csv,.xlsx,.pdf"
             onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
           />
-          <p className="muted field-hint">Accepts CSV or Excel (.xlsx) files.</p>
+          <p className="muted field-hint">
+            Accepts CSV, Excel (.xlsx), or PDF statements (e.g. Bolt, bank, or payment provider exports).
+            PDFs must have real, selectable text — not a scanned or photographed copy.
+          </p>
 
           <button
             disabled={!businessId || loadingStates.uploadCsv}

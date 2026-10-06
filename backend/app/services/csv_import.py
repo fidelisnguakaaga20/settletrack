@@ -4,6 +4,7 @@ from datetime import datetime
 from io import BytesIO, StringIO
 from typing import Any
 
+import pdfplumber
 from openpyxl import load_workbook
 
 
@@ -17,9 +18,10 @@ REQUIRED_FIELDS = {
 }
 
 GENERAL_GUIDANCE = (
-    "Please upload a bank or payment export in Excel or CSV format. "
+    "Please upload a bank or payment export in Excel, CSV, or PDF format. "
     "For best results, export your statement directly from your bank, OPay, "
-    "Paystack, or Flutterwave dashboard."
+    "Paystack, Flutterwave, or Bolt dashboard. PDFs must have real, selectable "
+    "text - not a scanned or photographed copy."
 )
 
 SUCCESS_GUIDANCE = "You can now run reconciliation, view dashboard, or export your report."
@@ -252,7 +254,7 @@ def row_has_transaction_headers(row_values) -> bool:
     return matches >= 3
 
 
-def find_xlsx_header_row(rows) -> int:
+def find_header_row(rows) -> int:
     # Search first 30 rows because real bank statements often contain metadata above headers.
     for index, row_values in enumerate(rows[:30]):
         if row_has_transaction_headers(row_values):
@@ -268,7 +270,7 @@ def read_xlsx_rows(content: bytes):
     if not rows:
         return [], [], "unsupported"
 
-    header_row_index = find_xlsx_header_row(rows)
+    header_row_index = find_header_row(rows)
     detected_columns = [
         clean_text(value)
         for value in rows[header_row_index]
@@ -278,6 +280,45 @@ def read_xlsx_rows(content: bytes):
 
     for row_values in rows[header_row_index + 1:]:
         if not any(clean_text(value) for value in row_values):
+            continue
+
+        row = {}
+        for index, column in enumerate(detected_columns):
+            row[column] = row_values[index] if index < len(row_values) else None
+        data_rows.append(row)
+
+    statement_type = "bank_statement" if header_row_index > 0 else "transaction_table"
+    return detected_columns, data_rows, statement_type
+
+
+def read_pdf_rows(content: bytes):
+    extracted_rows: list[tuple] = []
+
+    with pdfplumber.open(BytesIO(content)) as pdf:
+        has_text = any((page.extract_text() or "").strip() for page in pdf.pages)
+
+        if not has_text:
+            return [], [], "unsupported_scanned"
+
+        for page in pdf.pages:
+            for table in page.extract_tables():
+                extracted_rows.extend(tuple(row) for row in table)
+
+    if not extracted_rows:
+        return [], [], "unsupported"
+
+    header_row_index = find_header_row(extracted_rows)
+    detected_columns = [clean_text(value) for value in extracted_rows[header_row_index]]
+    normalized_header = [clean_text(value).lower() for value in detected_columns]
+
+    data_rows = []
+
+    for row_values in extracted_rows[header_row_index + 1:]:
+        if not any(clean_text(value) for value in row_values):
+            continue
+
+        # Multi-page statements usually repeat the header row on every page - skip those.
+        if [clean_text(value).lower() for value in row_values] == normalized_header:
             continue
 
         row = {}
@@ -393,12 +434,6 @@ def parse_smart_transaction_file(
             user_guidance="Please save or export the file as .xlsx, then upload it again.",
         )
 
-    if extension == "pdf":
-        return base_response(
-            message="We could not read this PDF clearly.",
-            detected_file_type="pdf",
-        )
-
     if extension in {"png", "jpg", "jpeg"}:
         return base_response(
             message="We could not read this screenshot clearly.",
@@ -410,6 +445,20 @@ def parse_smart_transaction_file(
             detected_columns, raw_rows, detected_statement_type = read_csv_rows(content)
         elif extension == "xlsx":
             detected_columns, raw_rows, detected_statement_type = read_xlsx_rows(content)
+        elif extension == "pdf":
+            detected_columns, raw_rows, detected_statement_type = read_pdf_rows(content)
+
+            if detected_statement_type == "unsupported_scanned":
+                return base_response(
+                    message="This PDF looks like a scanned image without selectable text.",
+                    detected_file_type="pdf",
+                    detected_statement_type="unsupported",
+                    user_guidance=(
+                        "We can only read PDFs that still have real, selectable text - "
+                        "not scanned or photographed copies. Please upload the original "
+                        "spreadsheet (CSV or Excel) instead, or a text-based PDF export."
+                    ),
+                )
         else:
             return base_response(
                 message="We could not read this file clearly.",

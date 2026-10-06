@@ -78,6 +78,8 @@ npm run build
 
 A sample transaction file is at [backend/sample-transactions-demo.csv](backend/sample-transactions-demo.csv) — includes a duplicate reference and failed payments so reconciliation has something to flag. Register an account, create a business, upload that file, then run reconciliation.
 
+Uploads also accept PDF statements (e.g. Bolt, bank, or payment provider exports) — see [backend/tests/fixtures/sample-bolt-statement.pdf](backend/tests/fixtures/sample-bolt-statement.pdf) for a working example. PDFs must have real, selectable text; scanned or photographed copies are rejected with a clear message rather than guessed at, since OCR misreads on financial amounts would be worse than an upload simply failing.
+
 Note: `/paystack/sync` is currently a placeholder and doesn't pull real Paystack transactions yet, so "Unmatched" and "Amount mismatch" results aren't demonstrable until that integration is built.
 
 ## Deployment
